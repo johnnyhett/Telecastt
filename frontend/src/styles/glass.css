@@ -31,7 +31,7 @@
 
 .c-button:hover {
   transform: scale(1.05);
-  background: #6a4fee;
+  background: var(--color-accent-cyan);
 }
 
 .c-input {

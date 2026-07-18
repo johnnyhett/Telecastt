@@ -133,14 +133,17 @@ function App() {
         
         {mode === 'selection' && (
           <div>
-            <h1 style={{ margin: '0 0 1rem 0', fontWeight: '800', letterSpacing: '-0.5px' }}>Telecastt</h1>
-            <p style={{ margin: '0 0 2rem 0', opacity: 0.7 }}>144Hz Zero-Latency Second Monitor</p>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '2rem' }}>
+              <img src="/assets/logo.png" alt="Telecastt" style={{ width: '100px', height: '100px', marginBottom: '1.5rem', borderRadius: '20px', boxShadow: '0 10px 30px rgba(59, 130, 246, 0.3)' }} />
+              <h1 style={{ margin: '0 0 0.5rem 0', fontWeight: '800', letterSpacing: '-0.5px', textTransform: 'uppercase', fontSize: '2rem' }}>Telecastt</h1>
+              <p style={{ margin: 0, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '1px', fontSize: '0.85rem' }}>Enterprise Stream Control Protocol</p>
+            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <button className="c-button" onClick={handleStartHosting}>
-                Share Display (Host)
+                Initialize Host Node
               </button>
-              <div style={{ margin: '1rem 0', opacity: 0.5, fontSize: '0.8rem' }}>OR</div>
+              <div style={{ margin: '1rem 0', opacity: 0.5, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '2px' }}>Network Link</div>
               <input 
                 className="c-input" 
                 placeholder="Enter Room Code" 
@@ -149,7 +152,7 @@ function App() {
                 maxLength={6}
               />
               <button className="c-button" onClick={handleJoinClient} disabled={roomIdInput.length !== 6}>
-                Join Display (Client)
+                Connect to Host
               </button>
             </div>
           </div>

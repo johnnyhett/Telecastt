@@ -1,13 +1,13 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;800&display=swap');
 
 :root {
-  /* Core Color Palette */
-  --color-black: #050505;
-  --color-gray-900: #121212;
-  --color-gray-800: #1E1E1E;
+  /* Core Color Palette - Enterprise Navy */
+  --color-black: #020617;
+  --color-gray-900: #0f172a;
+  --color-gray-800: #1e293b;
   --color-white: #FFFFFF;
-  --color-accent-purple: #7B61FF;
-  --color-accent-cyan: #00F0FF;
+  --color-accent-purple: #2563eb; /* Corporate Blue */
+  --color-accent-cyan: #60a5fa; /* Soft Blue */
 
   /* Glass Opacities */
   --glass-alpha-5: rgba(255, 255, 255, 0.05);
@@ -39,7 +39,7 @@
 
 body {
   background-color: var(--surface-bg);
-  background-image: radial-gradient(circle at 50% 0%, rgba(123, 97, 255, 0.15), transparent 50%);
+  background-image: radial-gradient(circle at 50% 0%, rgba(37, 99, 235, 0.15), transparent 50%);
   color: var(--text-primary);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   margin: 0;
