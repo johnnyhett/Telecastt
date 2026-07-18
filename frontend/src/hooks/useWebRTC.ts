@@ -20,7 +20,7 @@ export const useWebRTC = (roomId: string | null, isHost: boolean, localStream: M
 
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const ws = useRef<WebSocket | null>(null);
-  const remoteStream = useRef<MediaStream | null>(null);
+  const remoteStream = useRef<MediaStream>(new MediaStream());
   
   // ICE Candidate Buffer to fix race condition
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
@@ -44,9 +44,6 @@ export const useWebRTC = (roomId: string | null, isHost: boolean, localStream: M
     };
 
     peerConnection.current.ontrack = (event) => {
-      if (!remoteStream.current) {
-        remoteStream.current = new MediaStream();
-      }
       remoteStream.current.addTrack(event.track);
 
       // CRITICAL FOR ZERO LATENCY
