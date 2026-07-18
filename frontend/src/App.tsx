@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { useWebRTC } from './hooks/useWebRTC';
 import { useDisplayMedia } from './hooks/useDisplayMedia';
 import VideoSurface from './components/VideoSurface';
@@ -14,24 +15,40 @@ function App() {
   const [roomIdInput, setRoomIdInput] = useState('');
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [localIp, setLocalIp] = useState<string>('localhost');
 
-  // Capture stream first
   const { startCapture, stopCapture, localStream, error: captureError } = useDisplayMedia();
-  
-  // WebRTC automatically initializes perfectly with the localStream when activeRoomId is set
   const { connectionState, isReady, remoteStream, error: rtcError, stats } = useWebRTC(activeRoomId, mode === 'host', localStream);
+
+  // Auto-join via Query Parameter (e.g., from QR Code scan)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    if (roomParam && roomParam.length === 6) {
+      setRoomIdInput(roomParam.toUpperCase());
+      setActiveRoomId(roomParam.toUpperCase());
+      setMode('client');
+    }
+  }, []);
 
   const handleStartHosting = async () => {
     const stream = await startCapture();
     if (!stream) return;
 
     try {
+      // Fetch Room Code
       const res = await fetch('http://localhost:3001/api/create-room');
       const data = await res.json();
+      
+      // Fetch Local IP for QR Code
+      const ipRes = await fetch('http://localhost:3001/api/network-info');
+      const ipData = await ipRes.json();
+      
+      setLocalIp(ipData.localIp);
       setActiveRoomId(data.roomId);
       setMode('host');
     } catch (e) {
-      console.error("Could not fetch room code", e);
+      console.error("Could not fetch resources", e);
     }
   };
 
@@ -44,7 +61,7 @@ function App() {
 
   const handleDisconnect = () => {
     stopCapture();
-    window.location.reload(); // Hard reset state for MVP
+    window.location.href = window.location.pathname; // Hard reset state and clear query params
   };
 
   const toggleFullscreen = async () => {
@@ -107,37 +124,56 @@ function App() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', padding: '2rem' }}>
       
-      <div className="c-glass-card fade-enter-active" style={{ textAlign: 'center', maxWidth: '400px', width: '100%' }}>
-        <h1 style={{ margin: '0 0 1rem 0', fontWeight: '800', letterSpacing: '-0.5px' }}>Telecastt</h1>
-        <p style={{ margin: '0 0 2rem 0', opacity: 0.7 }}>144Hz Zero-Latency Second Monitor</p>
-
+      <div className="c-glass-card fade-enter-active" style={{ textAlign: 'center', maxWidth: '400px', width: '100%', position: 'relative' }}>
+        
         {mode === 'selection' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <button className="c-button" onClick={handleStartHosting}>
-              Share Display (Host)
-            </button>
-            <div style={{ margin: '1rem 0', opacity: 0.5, fontSize: '0.8rem' }}>OR</div>
-            <input 
-              className="c-input" 
-              placeholder="Enter Room Code" 
-              value={roomIdInput} 
-              onChange={e => setRoomIdInput(e.target.value.toUpperCase())}
-              maxLength={6}
-            />
-            <button className="c-button" onClick={handleJoinClient} disabled={roomIdInput.length !== 6}>
-              Join Display (Client)
-            </button>
+          <div>
+            <h1 style={{ margin: '0 0 1rem 0', fontWeight: '800', letterSpacing: '-0.5px' }}>Telecastt</h1>
+            <p style={{ margin: '0 0 2rem 0', opacity: 0.7 }}>144Hz Zero-Latency Second Monitor</p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <button className="c-button" onClick={handleStartHosting}>
+                Share Display (Host)
+              </button>
+              <div style={{ margin: '1rem 0', opacity: 0.5, fontSize: '0.8rem' }}>OR</div>
+              <input 
+                className="c-input" 
+                placeholder="Enter Room Code" 
+                value={roomIdInput} 
+                onChange={e => setRoomIdInput(e.target.value.toUpperCase())}
+                maxLength={6}
+              />
+              <button className="c-button" onClick={handleJoinClient} disabled={roomIdInput.length !== 6}>
+                Join Display (Client)
+              </button>
+            </div>
           </div>
         )}
 
         {mode === 'host' && activeRoomId && (
           <div className="fade-enter-active">
-            <h2 style={{ fontSize: '3rem', margin: '1.5rem 0', letterSpacing: '4px', color: 'var(--color-accent-cyan)' }}>
+            <h2 style={{ fontSize: '2rem', margin: '0.5rem 0 1.5rem 0', letterSpacing: '4px', color: 'var(--color-accent-cyan)' }}>
               {activeRoomId}
             </h2>
-            <p>Waiting for client to connect...</p>
-            {isReady && <p style={{ color: '#4ade80', marginTop: '1rem' }}>Client found, negotiating stream...</p>}
-            <button className="c-button" style={{ marginTop: '2rem', background: 'rgba(255,255,255,0.1)' }} onClick={handleDisconnect}>Cancel</button>
+            
+            {/* Zero-Config Network Discovery QR Code */}
+            <div style={{ background: 'white', padding: '16px', borderRadius: '12px', display: 'inline-block', marginBottom: '1rem' }}>
+              <QRCodeSVG 
+                value={`http://${localIp}:5173?room=${activeRoomId}`} 
+                size={180} 
+                level="L" 
+                includeMargin={false} 
+              />
+            </div>
+
+            <p style={{ opacity: 0.8, fontSize: '0.9rem', marginBottom: '0.5rem' }}>Scan to connect instantly, or visit:</p>
+            <p style={{ fontWeight: 600, color: 'white', letterSpacing: '0.5px', marginBottom: '1.5rem' }}>
+              http://{localIp}:5173
+            </p>
+
+            {isReady && <p style={{ color: '#4ade80', fontWeight: 'bold' }}>Client connecting, negotiating stream...</p>}
+            
+            <button className="c-button" style={{ marginTop: '1rem', background: 'rgba(255,255,255,0.1)' }} onClick={handleDisconnect}>Cancel</button>
           </div>
         )}
 

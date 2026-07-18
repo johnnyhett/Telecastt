@@ -3,6 +3,7 @@ const http = require('http');
 const { WebSocketServer } = require('ws');
 const crypto = require('crypto');
 const cors = require('cors');
+const os = require('os');
 
 const app = express();
 app.use(cors());
@@ -25,6 +26,20 @@ function generateRoomCode() {
   }
   return code;
 }
+
+app.get('/api/network-info', (req, res) => {
+  const interfaces = os.networkInterfaces();
+  let localIp = 'localhost';
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        localIp = iface.address;
+        break; // take the first valid one
+      }
+    }
+  }
+  res.json({ localIp });
+});
 
 app.get('/api/create-room', (req, res) => {
   const roomId = generateRoomCode();

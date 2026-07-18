@@ -1,5 +1,5 @@
 import React from 'react';
-import { TelemetryStats } from '../hooks/useWebRTC';
+import type { TelemetryStats } from '../hooks/useWebRTC';
 
 interface TelemetryOverlayProps {
   stats: TelemetryStats;
