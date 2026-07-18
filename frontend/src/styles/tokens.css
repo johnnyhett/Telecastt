@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;800&display=swap');
+
 :root {
   /* Core Color Palette */
   --color-black: #050505;
@@ -34,8 +36,6 @@
   --ease-spring: linear(0, 0.4, 0.75, 0.95, 1.05, 1.08, 1.05, 1.01, 0.99, 1);
   --duration-spring: 400ms;
 }
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;800&display=swap');
 
 body {
   background-color: var(--surface-bg);
