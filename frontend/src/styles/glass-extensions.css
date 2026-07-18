@@ -1,0 +1,122 @@
+/* Telemetry Overlay */
+.c-telemetry-overlay {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: var(--surface-glass-base);
+  backdrop-filter: var(--blur-md);
+  -webkit-backdrop-filter: var(--blur-md);
+  border: var(--border-glass-default);
+  border-radius: 12px;
+  padding: 12px 20px;
+  display: flex;
+  gap: 20px;
+  z-index: 100;
+  pointer-events: none;
+  box-shadow: var(--shadow-ambient);
+}
+
+.telemetry-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.telemetry-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+
+.telemetry-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Mac-style Dock */
+.c-mac-dock-container {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 120px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding-bottom: 24px;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.4s ease, transform 0.4s var(--ease-spring);
+  z-index: 100;
+}
+
+.app-container:hover .c-mac-dock-container,
+.c-mac-dock-container:hover {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.c-mac-dock {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: var(--blur-lg);
+  -webkit-backdrop-filter: var(--blur-lg);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 24px;
+  padding: 12px;
+  display: flex;
+  gap: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.dock-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-spring);
+}
+
+.dock-icon:hover {
+  transform: scale(1.15) translateY(-5px);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.dock-icon.disconnect:hover {
+  background: #ef4444;
+  color: white;
+}
+
+.dock-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* State Transitions */
+.fade-enter {
+  opacity: 0;
+  transform: scale(0.95);
+}
+.fade-enter-active {
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 400ms, transform 400ms var(--ease-spring);
+}
+.fade-exit {
+  opacity: 1;
+  transform: scale(1);
+}
+.fade-exit-active {
+  opacity: 0;
+  transform: scale(0.95);
+  transition: opacity 300ms, transform 300ms ease;
+}

@@ -2,17 +2,27 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 
 const SIGNALING_SERVER = 'ws://localhost:3001';
 
+export interface TelemetryStats {
+  fps: number;
+  bitrateMbps: string;
+  jitterMs: string;
+}
+
 export const useWebRTC = (roomId: string | null, isHost: boolean) => {
   const [connectionState, setConnectionState] = useState<string>('disconnected');
   const [error, setError] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
   
+  // Telemetry
+  const [stats, setStats] = useState<TelemetryStats>({ fps: 0, bitrateMbps: '0.00', jitterMs: '0.0' });
+  const lastBytesReceived = useRef<number>(0);
+  const lastTimestamp = useRef<number>(0);
+
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const ws = useRef<WebSocket | null>(null);
   const remoteStream = useRef<MediaStream | null>(null);
 
   const initWebRTC = useCallback(() => {
-    // Force WebRTC configuration
     peerConnection.current = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     });
@@ -24,17 +34,14 @@ export const useWebRTC = (roomId: string | null, isHost: boolean) => {
     };
 
     peerConnection.current.ontrack = (event) => {
-      // Receive track from host
       if (!remoteStream.current) {
         remoteStream.current = new MediaStream();
       }
       remoteStream.current.addTrack(event.track);
 
       // CRITICAL FOR ZERO LATENCY
-      // Override the playoutDelayHint to 0 to destroy the jitter buffer
       const receivers = peerConnection.current?.getReceivers() || [];
       receivers.forEach(receiver => {
-        // Typecasting since standard typescript dom types might not have it yet
         if ('playoutDelayHint' in receiver) {
           (receiver as any).playoutDelayHint = 0;
         }
@@ -72,7 +79,6 @@ export const useWebRTC = (roomId: string | null, isHost: boolean) => {
           break;
         case 'ready':
           setIsReady(true);
-          // If host, create offer
           if (isHost && peerConnection.current) {
             try {
               const offer = await peerConnection.current.createOffer();
@@ -133,6 +139,53 @@ export const useWebRTC = (roomId: string | null, isHost: boolean) => {
     };
   }, [roomId, initWebRTC, connectSignaling]);
 
+  // Telemetry Polling
+  useEffect(() => {
+    if (connectionState !== 'connected' || isHost) return;
+
+    const interval = setInterval(async () => {
+      if (!peerConnection.current) return;
+      try {
+        const statsReport = await peerConnection.current.getStats();
+        let fps = 0;
+        let bytesReceived = 0;
+        let jitterBufferDelay = 0;
+        let jitterBufferEmittedCount = 0;
+        const timestamp = performance.now();
+
+        statsReport.forEach(report => {
+          if (report.type === 'inbound-rtp' && report.kind === 'video') {
+            fps = report.framesPerSecond || 0;
+            bytesReceived = report.bytesReceived || 0;
+            jitterBufferDelay = report.jitterBufferDelay || 0;
+            jitterBufferEmittedCount = report.jitterBufferEmittedCount || 1;
+          }
+        });
+
+        // Calculate Bitrate (Mbps)
+        let bitrateMbps = '0.00';
+        if (lastTimestamp.current && lastBytesReceived.current) {
+          const timeDelta = (timestamp - lastTimestamp.current) / 1000;
+          const bytesDelta = bytesReceived - lastBytesReceived.current;
+          const bitsDelta = bytesDelta * 8;
+          bitrateMbps = (bitsDelta / timeDelta / 1_000_000).toFixed(2);
+        }
+        
+        lastBytesReceived.current = bytesReceived;
+        lastTimestamp.current = timestamp;
+
+        // Calculate average jitter (ms)
+        const jitterMs = ((jitterBufferDelay / jitterBufferEmittedCount) * 1000).toFixed(1);
+
+        setStats({ fps, bitrateMbps, jitterMs });
+      } catch (e) {
+        // Ignore stats errors
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [connectionState, isHost]);
+
   const addLocalStream = useCallback((stream: MediaStream) => {
     if (peerConnection.current) {
       stream.getTracks().forEach(track => {
@@ -146,6 +199,7 @@ export const useWebRTC = (roomId: string | null, isHost: boolean) => {
     error,
     isReady,
     remoteStream: remoteStream.current,
-    addLocalStream
+    addLocalStream,
+    stats
   };
 };
