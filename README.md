@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="https://img.shields.io/badge/Telecastt-144Hz_Zero_Latency-7B61FF?style=for-the-badge" alt="Telecastt Banner" />
-  <h1>Telecastt 🔮</h1>
-  <p><strong>Turn any web browser into an ultra-low latency, 144Hz 4K second monitor.</strong></p>
+  <img src="assets/logo.png" alt="Telecastt Logo" width="400" />
+  
+  <p><strong>Enterprise-Grade Ultra-Low Latency Virtual Monitor via WebRTC</strong></p>
 
   [![React](https://img.shields.io/badge/React-18.x-61DAFB?style=flat-square&logo=react)](#)
   [![Vite](https://img.shields.io/badge/Vite-4.x-646CFF?style=flat-square&logo=vite)](#)
@@ -12,55 +12,49 @@
 
 ---
 
-## ✨ Overview
+## Overview
 
-Telecastt is a state-of-the-art WebRTC application designed to extend your Windows desktop to any device with a web browser (iPad, MacBook, Android, or another PC) without the need for expensive hardware HDMI dummies. 
+Telecastt is a high-performance WebRTC application engineered to seamlessly extend a Windows desktop environment to any browser-enabled device. 
 
-By leveraging native **OS-level EDID spoofing** combined with **hardware-accelerated WebRTC** and a **zero-jitter-buffer** architecture, Telecastt achieves performance that rivals native cables: up to **4K resolutions** at **144Hz+** with imperceptible latency.
+By leveraging native OS-level EDID spoofing combined with hardware-accelerated WebRTC and a zero-jitter-buffer architecture, Telecastt delivers performance that rivals physical hardware connections: supporting up to 4K resolutions at 144Hz with imperceptible latency.
 
-## 🚀 The Secret Sauce
+## Architecture
 
-* **Zero-Latency WebRTC:** Aggressively bypasses traditional WebRTC jitter buffers (`playoutDelayHint = 0`) to render frames the exact millisecond they hit the network.
-* **4K & 144Hz Native Capture:** Prevents browser downscaling via strict `resizeMode: "none"` constraints and prioritizes hardware encoders (H.264/VP8).
-* **Dark Glassmorphism UI:** A sleek, performance-first user interface built with native CSS `cubic-bezier` spring physics (no bloated animation libraries).
-* **Automated Virtual Driver:** Bundled with a PowerShell script to seamlessly install and configure an open-source Windows Indirect Display Driver (IDD).
+- **Zero-Latency WebRTC Pipeline:** Aggressively bypasses conventional WebRTC jitter buffers (`playoutDelayHint = 0`) to render frames instantaneously.
+- **Hardware-Accelerated Capture:** Utilizes strict `resizeMode: "none"` constraints to prevent browser-level downscaling, enforcing hardware encoder prioritization (H.264/VP8).
+- **Automated IDD Provisioning:** Includes a robust PowerShell deployment script for seamless installation and configuration of an open-source Windows Indirect Display Driver (IDD).
+- **Secure Signaling:** A lightweight, pure-WebSocket Node.js signaling server utilizing Cryptographically Secure Pseudorandom Number Generators (CSPRNG) for room authentication.
 
-## 🛠️ Installation & Setup
+## Installation & Deployment
 
-### 1. Install the Virtual Display (Windows Host Only)
-To extend your desktop, Windows requires a monitor. Telecastt automates the creation of a virtual one.
-1. Open PowerShell as **Administrator**.
-2. Run the included setup script:
+### 1. Virtual Display Provisioning (Windows Host)
+Telecastt requires a virtual monitor to extend the desktop environment.
+1. Launch PowerShell with **Administrator privileges**.
+2. Execute the provisioning script:
    ```powershell
    .\scripts\Install-VirtualMonitor.ps1
    ```
-3. Open Windows Display Settings, select **Extend these displays**, and set the virtual monitor to your desired resolution and refresh rate (up to 4K / 144Hz).
+3. Navigate to **Windows Display Settings**, select **Extend these displays**, and configure the virtual monitor to your required resolution and refresh rate (supports up to 4K / 144Hz).
 
-### 2. Run the Signaling Server
-The lightweight Node.js WebSocket server is required to broker the peer-to-peer connection.
+### 2. Signaling Server Deployment
+The Node.js WebSocket server is required to broker the peer-to-peer connection.
 ```bash
 cd backend
 npm install
 npm start
 ```
 
-### 3. Start the Web App
+### 3. Client Interface Deployment
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-### 4. Connect
-1. On your **Host PC**, navigate to `http://localhost:5173`. Click **Share Display** and select the Virtual Monitor you just created.
-2. A 6-character secure room code will be generated.
-3. On your **Client Device** (e.g., iPad), navigate to your Host PC's local IP address (e.g., `http://192.168.1.50:5173`), enter the room code, and experience zero-latency casting!
+### 4. Connection Protocol
+1. On the **Host Machine**, navigate to `http://localhost:5173`. Click **Share Display** and select the designated Virtual Monitor.
+2. A secure 6-character room code will be generated.
+3. On the **Client Device**, navigate to the Host's local network IP address (e.g., `http://192.168.1.50:5173`), authenticate with the room code, and initiate the stream.
 
-## 🔮 The "Project 777" Roadmap
-Telecastt is actively evolving. We are executing the massive **777-Phase Master Plan** to turn this into the ultimate universal casting platform. Upcoming features include:
-* **WebCodecs API Rewrite:** Bypassing the `<video>` element entirely for raw GPU frame rendering.
-* **Remote Peripherals:** Sub-millisecond WebRTC DataChannels for mouse and keyboard passthrough.
-* **Tauri/Rust Desktop Client:** A native host application for silent system-tray operation and automated monitor lifecycle management.
-
-## 📄 License
-This project is licensed under the MIT License.
+## License
+Distributed under the MIT License.
