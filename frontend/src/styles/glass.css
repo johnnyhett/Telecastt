@@ -1,0 +1,53 @@
+.c-glass-card {
+  position: relative;
+  background: var(--surface-glass-base);
+  backdrop-filter: var(--blur-md);
+  -webkit-backdrop-filter: var(--blur-md);
+  border: var(--border-glass-default);
+  border-radius: var(--space-4);
+  box-shadow: var(--shadow-ambient);
+  padding: var(--space-8);
+  transition: transform var(--duration-spring) var(--ease-spring),
+              border-color var(--duration-spring) var(--ease-spring);
+  will-change: transform;
+}
+
+.c-glass-card:hover {
+  transform: translateY(-4px) scale(1.02);
+  border-color: var(--border-glass-highlight);
+}
+
+.c-button {
+  background: var(--color-accent-purple);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.c-button:hover {
+  transform: scale(1.05);
+  background: #6a4fee;
+}
+
+.c-input {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-glass-default);
+  color: white;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 1.2rem;
+  text-align: center;
+  width: 100%;
+  margin-bottom: 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.c-input:focus {
+  border-color: var(--color-accent-cyan);
+}

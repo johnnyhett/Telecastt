@@ -1,0 +1,51 @@
+:root {
+  /* Core Color Palette */
+  --color-black: #050505;
+  --color-gray-900: #121212;
+  --color-gray-800: #1E1E1E;
+  --color-white: #FFFFFF;
+  --color-accent-purple: #7B61FF;
+  --color-accent-cyan: #00F0FF;
+
+  /* Glass Opacities */
+  --glass-alpha-5: rgba(255, 255, 255, 0.05);
+  --glass-alpha-10: rgba(255, 255, 255, 0.10);
+  --glass-alpha-20: rgba(255, 255, 255, 0.20);
+  
+  /* Blurs */
+  --blur-md: blur(16px);
+  --blur-lg: blur(32px);
+
+  /* Spacing */
+  --space-2: 0.5rem;
+  --space-4: 1rem;
+  --space-8: 2rem;
+
+  /* Semantic */
+  --surface-bg: var(--color-black);
+  --surface-glass-base: var(--glass-alpha-10);
+  --border-glass-default: 1px solid var(--glass-alpha-10);
+  --border-glass-highlight: 1px solid var(--glass-alpha-20);
+  --text-primary: rgba(255, 255, 255, 0.9);
+  --text-secondary: rgba(255, 255, 255, 0.6);
+  --shadow-ambient: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+
+  /* Animations */
+  --ease-spring: linear(0, 0.4, 0.75, 0.95, 1.05, 1.08, 1.05, 1.01, 0.99, 1);
+  --duration-spring: 400ms;
+}
+
+body {
+  background-color: var(--surface-bg);
+  background-image: radial-gradient(circle at 50% 0%, rgba(123, 97, 255, 0.15), transparent 50%);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
