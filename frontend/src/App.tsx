@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useWebRTC } from './hooks/useWebRTC';
 import { useDisplayMedia } from './hooks/useDisplayMedia';
 import VideoSurface from './components/VideoSurface';

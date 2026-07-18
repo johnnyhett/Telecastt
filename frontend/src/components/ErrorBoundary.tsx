@@ -1,4 +1,5 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Component } from 'react';
+import type { ErrorInfo, ReactNode } from 'react';
 
 interface Props {
   children: ReactNode;
@@ -18,24 +19,6 @@ class ErrorBoundary extends Component<Props, State> {
   public static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
   }
-
-  public componentDidMount() {
-    window.addEventListener('error', this.handleGlobalError);
-    window.addEventListener('unhandledrejection', this.handlePromiseRejection);
-  }
-
-  public componentWillUnmount() {
-    window.removeEventListener('error', this.handleGlobalError);
-    window.removeEventListener('unhandledrejection', this.handlePromiseRejection);
-  }
-
-  private handleGlobalError = (event: ErrorEvent) => {
-    this.setState({ hasError: true, error: event.error });
-  };
-
-  private handlePromiseRejection = (event: PromiseRejectionEvent) => {
-    this.setState({ hasError: true, error: event.reason });
-  };
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error in React Error Boundary:', error, errorInfo);

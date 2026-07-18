@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Monitor, Cpu, Radio, Power, LayoutDashboard, ShieldCheck, Activity } from 'lucide-react';
+import { Monitor, Radio, Power, LayoutDashboard, ShieldCheck, Activity } from 'lucide-react';
 import '../styles/command-center.css';
 
 interface CommandCenterProps {
@@ -68,10 +68,21 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
               <h3 className="cc-panel-title">Display Layout Topology</h3>
             </div>
             <p style={{ opacity: 0.6, fontSize: '0.9rem', lineHeight: '1.6', marginBottom: '1.5rem' }}>
-              Windows automatically places new virtual monitors to the right of your primary screen. Ensure your cursor transitions seamlessly by matching your physical setup.
+              Configure the spatial relationship between your primary and extended display to ensure seamless cursor transition.
             </p>
+            <div className="cc-dropdown-group" style={{ marginBottom: '1rem' }}>
+              <div className="cc-dropdown-wrapper">
+                <label className="cc-dropdown-label">Relative Position</label>
+                <select className="cc-dropdown-select" defaultValue="Right">
+                  <option value="Right">Right of Primary</option>
+                  <option value="Left">Left of Primary</option>
+                  <option value="Top">Top of Primary</option>
+                  <option value="Bottom">Bottom of Primary</option>
+                </select>
+              </div>
+            </div>
             <button className="cc-action-btn" onClick={openDisplaySettings}>
-              Configure Windows Display Layout
+              Open Windows Display Manager
             </button>
           </div>
 
@@ -90,9 +101,9 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
               <div className="cc-dropdown-wrapper">
                 <label className="cc-dropdown-label">Hardware Resolution</label>
                 <select className="cc-dropdown-select" value={res} onChange={e => setRes(e.target.value)}>
-                  <option value="1080p">1080p (Standard HD)</option>
-                  <option value="1440p">1440p (QHD)</option>
-                  <option value="4K">4K Native (Uncapped)</option>
+                  <option value="1080p">1080p</option>
+                  <option value="1440p">1440p</option>
+                  <option value="4K">4K Native</option>
                 </select>
                 <p className="cc-dropdown-desc">Enforces strict driver-level EDID resolution parameters.</p>
               </div>
@@ -100,9 +111,9 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
               <div className="cc-dropdown-wrapper">
                 <label className="cc-dropdown-label">Refresh Rate Governor</label>
                 <select className="cc-dropdown-select" value={fps} onChange={e => setFps(e.target.value)}>
-                  <option value="60">60 Hz (Power Saving)</option>
-                  <option value="120">120 Hz (High Performance)</option>
-                  <option value="144">144 Hz (Ultra-Low Latency)</option>
+                  <option value="60">60 Hz</option>
+                  <option value="120">120 Hz</option>
+                  <option value="144">144 Hz</option>
                 </select>
                 <p className="cc-dropdown-desc">Overrides native browser capture frequencies to lock frame pacing.</p>
               </div>
@@ -110,10 +121,10 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
               <div className="cc-dropdown-wrapper">
                 <label className="cc-dropdown-label">Target Bitrate Throttling</label>
                 <select className="cc-dropdown-select" value={bitrate} onChange={e => setBitrate(e.target.value)}>
-                  <option value="10">10 Mbps (Wi-Fi 4 / Distant)</option>
-                  <option value="25">25 Mbps (Wi-Fi 5 / Balanced)</option>
-                  <option value="50">50 Mbps (Wi-Fi 6 / High Fidelity)</option>
-                  <option value="100">100 Mbps (Wired LAN / Max Fidelity)</option>
+                  <option value="10">10 Mbps</option>
+                  <option value="25">25 Mbps</option>
+                  <option value="50">50 Mbps</option>
+                  <option value="100">100 Mbps</option>
                 </select>
                 <p className="cc-dropdown-desc">Manipulates the WebRTC RTCRtpSender to govern network congestion.</p>
               </div>
