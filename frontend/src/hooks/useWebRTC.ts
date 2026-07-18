@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 
-const SIGNALING_SERVER = 'ws://localhost:3001';
+const SIGNALING_SERVER = `ws://${window.location.hostname}:3001`;
 
 export interface TelemetryStats {
   fps: number;

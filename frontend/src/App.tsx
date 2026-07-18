@@ -36,10 +36,10 @@ function App() {
     if (!stream) return;
 
     try {
-      const res = await fetch('http://localhost:3001/api/create-room');
+      const res = await fetch(`http://${window.location.hostname}:3001/api/create-room`);
       const data = await res.json();
       
-      const ipRes = await fetch('http://localhost:3001/api/network-info');
+      const ipRes = await fetch(`http://${window.location.hostname}:3001/api/network-info`);
       const ipData = await ipRes.json();
       
       setLocalIp(ipData.localIp);
