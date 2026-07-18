@@ -48,6 +48,9 @@ app.get('/api/create-room', (req, res) => {
 });
 
 wss.on('connection', (ws, req) => {
+  ws.isAlive = true;
+  ws.on('error', console.error);
+  ws.on('pong', () => { ws.isAlive = true; });
   let currentRoom = null;
 
   ws.on('message', (message) => {
@@ -104,6 +107,18 @@ wss.on('connection', (ws, req) => {
       }
     }
   });
+});
+
+const interval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) return ws.terminate();
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
+wss.on('close', () => {
+  clearInterval(interval);
 });
 
 const PORT = process.env.PORT || 3001;

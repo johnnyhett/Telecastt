@@ -32,10 +32,10 @@ function App() {
   }, []);
 
   const handleStartHosting = async () => {
-    const stream = await startCapture();
-    if (!stream) return;
-
     try {
+      const stream = await startCapture();
+      if (!stream) return;
+
       const res = await fetch(`http://${window.location.hostname}:3001/api/create-room`);
       const data = await res.json();
       
@@ -46,7 +46,8 @@ function App() {
       setActiveRoomId(data.roomId);
       setMode('host');
     } catch (e) {
-      console.error("Could not fetch resources", e);
+      console.error("Could not fetch resources or access media", e);
+      stopCapture();
     }
   };
 
@@ -63,12 +64,16 @@ function App() {
   };
 
   const toggleFullscreen = async () => {
-    if (!document.fullscreenElement) {
-      await document.documentElement.requestFullscreen().catch(err => console.error(err));
-      setIsFullscreen(true);
-    } else {
-      await document.exitFullscreen().catch(err => console.error(err));
-      setIsFullscreen(false);
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+        setIsFullscreen(true);
+      } else {
+        await document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    } catch (err) {
+      console.error("Fullscreen error:", err);
     }
   };
 

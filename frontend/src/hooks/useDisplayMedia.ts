@@ -29,6 +29,10 @@ export const useDisplayMedia = () => {
       setLocalStream(stream);
       return stream;
     } catch (err: any) {
+      if (err.name === 'NotAllowedError') {
+        console.log("User cancelled display media selection.");
+        return null;
+      }
       console.error("Error accessing display media.", err);
       setError(err.message || "Could not access display media.");
       return null;
