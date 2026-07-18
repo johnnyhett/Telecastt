@@ -8,7 +8,7 @@ export interface TelemetryStats {
   jitterMs: string;
 }
 
-export const useWebRTC = (roomId: string | null, isHost: boolean) => {
+export const useWebRTC = (roomId: string | null, isHost: boolean, localStream: MediaStream | null = null) => {
   const [connectionState, setConnectionState] = useState<string>('disconnected');
   const [error, setError] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -21,11 +21,21 @@ export const useWebRTC = (roomId: string | null, isHost: boolean) => {
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const ws = useRef<WebSocket | null>(null);
   const remoteStream = useRef<MediaStream | null>(null);
+  
+  // ICE Candidate Buffer to fix race condition
+  const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
 
-  const initWebRTC = useCallback(() => {
+  const initWebRTC = useCallback((stream: MediaStream | null) => {
     peerConnection.current = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     });
+
+    // Add local stream tracks immediately upon creation
+    if (stream) {
+      stream.getTracks().forEach(track => {
+        peerConnection.current?.addTrack(track, stream);
+      });
+    }
 
     peerConnection.current.onconnectionstatechange = () => {
       if (peerConnection.current) {
@@ -93,6 +103,13 @@ export const useWebRTC = (roomId: string | null, isHost: boolean) => {
           if (!isHost && peerConnection.current) {
             try {
               await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.offer));
+              
+              // Flush buffered candidates
+              for (const c of pendingCandidates.current) {
+                await peerConnection.current.addIceCandidate(new RTCIceCandidate(c));
+              }
+              pendingCandidates.current = [];
+
               const answer = await peerConnection.current.createAnswer();
               await peerConnection.current.setLocalDescription(answer);
               ws.current?.send(JSON.stringify({ type: 'answer', answer }));
@@ -105,6 +122,12 @@ export const useWebRTC = (roomId: string | null, isHost: boolean) => {
           if (isHost && peerConnection.current) {
             try {
               await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+              
+              // Flush buffered candidates
+              for (const c of pendingCandidates.current) {
+                await peerConnection.current.addIceCandidate(new RTCIceCandidate(c));
+              }
+              pendingCandidates.current = [];
             } catch (err) {
               console.error(err);
             }
@@ -113,7 +136,12 @@ export const useWebRTC = (roomId: string | null, isHost: boolean) => {
         case 'ice-candidate':
           if (peerConnection.current) {
             try {
-              await peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+              if (peerConnection.current.remoteDescription) {
+                await peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+              } else {
+                // Buffer candidates if description isn't set yet
+                pendingCandidates.current.push(data.candidate);
+              }
             } catch (err) {
               console.error(err);
             }
@@ -129,7 +157,7 @@ export const useWebRTC = (roomId: string | null, isHost: boolean) => {
 
   useEffect(() => {
     if (roomId) {
-      initWebRTC();
+      initWebRTC(localStream);
       connectSignaling();
     }
 
@@ -137,7 +165,8 @@ export const useWebRTC = (roomId: string | null, isHost: boolean) => {
       if (ws.current) ws.current.close();
       if (peerConnection.current) peerConnection.current.close();
     };
-  }, [roomId, initWebRTC, connectSignaling]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId]); 
 
   // Telemetry Polling
   useEffect(() => {
@@ -186,20 +215,11 @@ export const useWebRTC = (roomId: string | null, isHost: boolean) => {
     return () => clearInterval(interval);
   }, [connectionState, isHost]);
 
-  const addLocalStream = useCallback((stream: MediaStream) => {
-    if (peerConnection.current) {
-      stream.getTracks().forEach(track => {
-        peerConnection.current?.addTrack(track, stream);
-      });
-    }
-  }, []);
-
   return {
     connectionState,
     error,
     isReady,
     remoteStream: remoteStream.current,
-    addLocalStream,
     stats
   };
 };

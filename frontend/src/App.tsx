@@ -15,8 +15,11 @@ function App() {
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  const { connectionState, isReady, remoteStream, addLocalStream, error: rtcError, stats } = useWebRTC(activeRoomId, mode === 'host');
+  // Capture stream first
   const { startCapture, stopCapture, localStream, error: captureError } = useDisplayMedia();
+  
+  // WebRTC automatically initializes perfectly with the localStream when activeRoomId is set
+  const { connectionState, isReady, remoteStream, error: rtcError, stats } = useWebRTC(activeRoomId, mode === 'host', localStream);
 
   const handleStartHosting = async () => {
     const stream = await startCapture();
@@ -27,7 +30,6 @@ function App() {
       const data = await res.json();
       setActiveRoomId(data.roomId);
       setMode('host');
-      addLocalStream(stream);
     } catch (e) {
       console.error("Could not fetch room code", e);
     }
