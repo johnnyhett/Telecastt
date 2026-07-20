@@ -1,43 +1,51 @@
-<#
-.SYNOPSIS
-Installs and configures an open-source Windows Indirect Display Driver (usbmmidd) to create a Phantom Monitor.
-.DESCRIPTION
-This script downloads and installs the Virtual Display Driver required to *extend* screens rather than just duplicate them.
-#>
+[CmdletBinding()]
+param (
+    [switch]$Uninstall
+)
 
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = "Stop"
 
-Write-Host "==============================================" -ForegroundColor Cyan
-Write-Host "  Telecastt Virtual Monitor Provisioning Tool " -ForegroundColor Cyan
-Write-Host "==============================================" -ForegroundColor Cyan
-
-# Check for Administrator privileges
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Warning "This script requires Administrator privileges to install the Virtual Display Driver."
-    Write-Host "Please right-click PowerShell and select 'Run as Administrator', then run this script again." -ForegroundColor Yellow
-    Exit
+# Check for admin
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Error "Please run this script as Administrator."
+    exit 1
 }
 
 $InstallDir = "C:\Telecastt-VDD"
-$ZipUrl = "https://github.com/ge9/IddSampleDriver/releases/download/0.0.1.2/IddSampleDriver.zip" # Hypothetical stable link for IDD or use generic placeholder for the script.
-# In a real enterprise app, we bundle the signed .inf driver or use usbmmidd_v2.
+$RepoUrl = "https://github.com/ge9/IddSampleDriver/releases/download/0.0.1.2/IddSampleDriver.zip"
+$ZipPath = Join-Path $env:TEMP "IddSampleDriver.zip"
+$InfPath = Join-Path $InstallDir "IddSampleDriver.inf"
 
-Write-Host "`n[1/3] Preparing Environment..."
-if (!(Test-Path $InstallDir)) {
-    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+try {
+    if ($Uninstall) {
+        Write-Host "Uninstalling Virtual Display Driver..."
+        if (Test-Path $InfPath) {
+            pnputil /delete-driver $InfPath /uninstall /force
+        }
+        if (Test-Path $InstallDir) {
+            Remove-Item -Path $InstallDir -Recurse -Force
+        }
+        Write-Host "Uninstallation complete."
+    } else {
+        Write-Host "Downloading IddSampleDriver..."
+        Invoke-WebRequest -Uri $RepoUrl -OutFile $ZipPath
+        
+        Write-Host "Extracting to $InstallDir..."
+        if (-not (Test-Path $InstallDir)) {
+            New-Item -ItemType Directory -Path $InstallDir | Out-Null
+        }
+        Expand-Archive -Path $ZipPath -DestinationPath $InstallDir -Force
+        
+        Write-Host "Installing driver..."
+        pnputil /add-driver $InfPath /install
+        
+        Write-Host "Installation complete."
+    }
+} catch {
+    Write-Error "An error occurred: $_"
+} finally {
+    if (Test-Path $ZipPath) {
+        Remove-Item -Path $ZipPath -Force
+    }
 }
-
-Write-Host "[2/3] Installing Windows Indirect Display Driver..."
-Write-Host "NOTE: For the MVP, please download and run the 'usbmmidd_v2' installer manually to install the signed driver certificate." -ForegroundColor Yellow
-
-Write-Host "[3/3] Phantom Monitor Configuration..."
-Write-Host "Successfully registered Telecastt Virtual Monitor Hooks." -ForegroundColor Green
-
-Write-Host "`n==============================================" -ForegroundColor Cyan
-Write-Host " SUCCESS: Virtual Monitor Engine is Ready." -ForegroundColor Green
-Write-Host "==============================================" -ForegroundColor Cyan
-Write-Host "Next Steps:"
-Write-Host "1. Open Windows Display Settings (Right-click Desktop -> Display Settings)"
-Write-Host "2. You will see a new 'Phantom Monitor' detected."
-Write-Host "3. Scroll down to 'Multiple displays' and select 'Extend these displays'."
-Write-Host "4. Go back to the Telecastt Web App and click 'Share Display', then select the new Phantom Monitor."

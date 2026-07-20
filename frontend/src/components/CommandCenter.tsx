@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Monitor, Radio, Power, LayoutDashboard, ShieldCheck, Activity } from 'lucide-react';
 import '../styles/command-center.css';
@@ -8,12 +8,17 @@ interface CommandCenterProps {
   activeRoomId: string;
   isReady: boolean;
   onDisconnect: () => void;
+  onSettingsChange: (settings: { fps: string; bitrate: string; resolution: string }) => void;
 }
 
-const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, isReady, onDisconnect }) => {
+const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, isReady, onDisconnect, onSettingsChange }) => {
   const [fps, setFps] = useState('144');
   const [bitrate, setBitrate] = useState('50');
   const [res, setRes] = useState('4K');
+
+  useEffect(() => {
+    onSettingsChange({ fps, bitrate, resolution: res });
+  }, [fps, bitrate, res, onSettingsChange]);
 
   const openDisplaySettings = () => {
     window.location.href = 'ms-settings:display';
@@ -24,9 +29,9 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
       
       {/* HEADER WITH LOGO */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2rem', marginBottom: '3rem' }}>
-        <img src="/assets/logo.png" alt="Telecastt Logo" style={{ width: '80px', height: '80px', objectFit: 'contain', filter: 'drop-shadow(0 0 20px rgba(0, 240, 255, 0.4))' }} />
+        <img src="/assets/logo.png" alt="Telecastt Logo" style={{ width: '80px', height: '80px', objectFit: 'contain', filter: 'drop-shadow(0 0 20px var(--color-accent-cyan))' }} />
         <div>
-          <h1 style={{ fontSize: '3rem', margin: '0', letterSpacing: '4px', textTransform: 'uppercase', color: 'white', textShadow: '0 0 30px rgba(0, 240, 255, 0.4)' }}>
+          <h1 style={{ fontSize: '3rem', margin: '0', letterSpacing: '4px', textTransform: 'uppercase', color: 'white', textShadow: '0 0 30px var(--color-accent-cyan)' }}>
             Telecastt
           </h1>
           <p style={{ color: 'rgba(255,255,255,0.6)', letterSpacing: '3px', marginTop: '0.25rem', fontSize: '0.9rem', textTransform: 'uppercase' }}>
@@ -64,7 +69,7 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
 
           <div className="cc-glass-panel">
             <div className="cc-panel-header">
-              <LayoutDashboard className="cc-icon" style={{ color: '#7B61FF' }} />
+              <LayoutDashboard className="cc-icon" style={{ color: 'var(--color-accent-purple)' }} />
               <h3 className="cc-panel-title">Display Layout Topology</h3>
             </div>
             <p style={{ opacity: 0.6, fontSize: '0.9rem', lineHeight: '1.6', marginBottom: '1.5rem' }}>

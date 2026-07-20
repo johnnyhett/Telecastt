@@ -8,7 +8,7 @@ export interface TelemetryStats {
   jitterMs: string;
 }
 
-export const useWebRTC = (roomId: string | null, isHost: boolean, localStream: MediaStream | null = null) => {
+export const useWebRTC = (roomId: string | null, isHost: boolean, localStream: MediaStream | null = null, streamSettings?: { fps: string; bitrate: string; resolution: string }) => {
   const [connectionState, setConnectionState] = useState<string>('disconnected');
   const [error, setError] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -24,6 +24,8 @@ export const useWebRTC = (roomId: string | null, isHost: boolean, localStream: M
   
   // ICE Candidate Buffer to fix race condition
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
+  const retryCount = useRef(0);
+  const maxRetries = 5;
 
   const initWebRTC = useCallback((stream: MediaStream | null) => {
     peerConnection.current = new RTCPeerConnection({
@@ -74,7 +76,25 @@ export const useWebRTC = (roomId: string | null, isHost: boolean, localStream: M
     ws.current = new WebSocket(SIGNALING_SERVER);
 
     ws.current.onopen = () => {
+      retryCount.current = 0; // Reset on successful connection
       ws.current?.send(JSON.stringify({ type: 'join', roomId }));
+    };
+
+    ws.current.onclose = (event) => {
+      if (event.wasClean) return;
+      if (retryCount.current >= maxRetries) {
+        setError('Connection lost. Max retries exceeded.');
+        return;
+      }
+      
+      // Exponential backoff: 1s, 2s, 4s, 8s, etc.
+      const delay = Math.pow(2, retryCount.current) * 1000;
+      retryCount.current += 1;
+      console.log(`WebSocket disconnected. Retrying in ${delay}ms (attempt ${retryCount.current}/${maxRetries})...`);
+      
+      setTimeout(() => {
+        connectSignaling();
+      }, delay);
     };
 
     ws.current.onmessage = async (event) => {
@@ -147,6 +167,14 @@ export const useWebRTC = (roomId: string | null, isHost: boolean, localStream: M
         case 'peer-disconnected':
           setConnectionState('disconnected');
           setIsReady(false);
+          if (peerConnection.current) {
+            peerConnection.current.close();
+          }
+          initWebRTC(localStream);
+          // If we are host, we are ready to accept new clients again
+          if (isHost) {
+            setIsReady(true);
+          }
           break;
       }
     };
@@ -164,6 +192,25 @@ export const useWebRTC = (roomId: string | null, isHost: boolean, localStream: M
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]); 
+
+  useEffect(() => {
+    if (!peerConnection.current || !streamSettings) return;
+    const senders = peerConnection.current.getSenders();
+    const videoSender = senders.find(s => s.track?.kind === 'video');
+    
+    if (videoSender) {
+      const params = videoSender.getParameters();
+      if (!params.encodings) {
+        params.encodings = [{}];
+      }
+      if (params.encodings.length > 0) {
+        // Convert Mbps to bps
+        params.encodings[0].maxBitrate = parseInt(streamSettings.bitrate, 10) * 1000000;
+        params.encodings[0].maxFramerate = parseInt(streamSettings.fps, 10);
+        videoSender.setParameters(params).catch(e => console.error("Error setting RTCRtpSender parameters:", e));
+      }
+    }
+  }, [streamSettings]);
 
   // Telemetry Polling
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 
-export const useDisplayMedia = () => {
+export const useDisplayMedia = (enableAudio: boolean = false) => {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -14,8 +14,7 @@ export const useDisplayMedia = () => {
           width: { ideal: 3840, max: 3840 },
           height: { ideal: 2160, max: 2160 }
         },
-        // Disable audio completely to avoid processing delays if not strictly needed
-        audio: false 
+        audio: enableAudio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false 
       };
 
       const stream = await navigator.mediaDevices.getDisplayMedia(constraints as any);

@@ -17,8 +17,10 @@ function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [localIp, setLocalIp] = useState<string>('localhost');
 
+  const [streamSettings, setStreamSettings] = useState({ fps: '60', bitrate: '50', resolution: '4K' });
+
   const { startCapture, stopCapture, localStream, error: captureError } = useDisplayMedia();
-  const { connectionState, isReady, remoteStream, error: rtcError, stats } = useWebRTC(activeRoomId, mode === 'host', localStream);
+  const { connectionState, isReady, remoteStream, error: rtcError, stats } = useWebRTC(activeRoomId, mode === 'host', localStream, streamSettings);
 
   // Auto-join via Query Parameter (e.g., from QR Code scan)
   useEffect(() => {
@@ -113,6 +115,7 @@ function App() {
           activeRoomId={activeRoomId}
           isReady={isReady || connectionState === 'connected'}
           onDisconnect={handleDisconnect}
+          onSettingsChange={setStreamSettings}
         />
         {(rtcError || captureError) && (
           <div style={{ position: 'fixed', bottom: 20, right: 20, background: 'rgba(255,0,0,0.8)', color: 'white', padding: '1rem', borderRadius: '8px' }}>
