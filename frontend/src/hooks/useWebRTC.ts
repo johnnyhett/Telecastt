@@ -8,49 +8,100 @@ export interface TelemetryStats {
   jitterMs: string;
 }
 
-export const useWebRTC = (roomId: string | null, isHost: boolean, localStream: MediaStream | null = null, streamSettings?: { fps: string; bitrate: string; resolution: string }) => {
+export interface StreamSettings {
+  fps: string;
+  bitrate: string;
+  resolution: string;
+}
+
+export const useWebRTC = (
+  roomId: string | null,
+  isHost: boolean,
+  localStream: MediaStream | null = null,
+  streamSettings?: StreamSettings
+) => {
   const [connectionState, setConnectionState] = useState<string>('disconnected');
   const [error, setError] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
-  
-  // Telemetry
   const [stats, setStats] = useState<TelemetryStats>({ fps: 0, bitrateMbps: '0.00', jitterMs: '0.0' });
+
   const lastBytesReceived = useRef<number>(0);
   const lastTimestamp = useRef<number>(0);
-
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const ws = useRef<WebSocket | null>(null);
   const remoteStream = useRef<MediaStream>(new MediaStream());
-  
-  // ICE Candidate Buffer to fix race condition
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
   const retryCount = useRef(0);
-  const maxRetries = 5;
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isCleaningUp = useRef(false);
 
-  const initWebRTC = useCallback((stream: MediaStream | null) => {
-    peerConnection.current = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+  // Store latest values in refs to avoid stale closures
+  const isHostRef = useRef(isHost);
+  const localStreamRef = useRef(localStream);
+  const roomIdRef = useRef(roomId);
+
+  useEffect(() => { isHostRef.current = isHost; }, [isHost]);
+  useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
+  useEffect(() => { roomIdRef.current = roomId; }, [roomId]);
+
+  const createPeerConnection = useCallback(() => {
+    if (peerConnection.current) {
+      peerConnection.current.close();
+    }
+    pendingCandidates.current = [];
+
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+      ],
+      iceCandidatePoolSize: 10,
     });
 
-    // Add local stream tracks immediately upon creation
+    // Add local stream tracks for host
+    const stream = localStreamRef.current;
     if (stream) {
       stream.getTracks().forEach(track => {
-        peerConnection.current?.addTrack(track, stream);
+        pc.addTrack(track, stream);
       });
     }
 
-    peerConnection.current.onconnectionstatechange = () => {
-      if (peerConnection.current) {
-        setConnectionState(peerConnection.current.connectionState);
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
+      setConnectionState(state);
+      if (state === 'failed') {
+        // Attempt ICE restart
+        if (isHostRef.current && ws.current?.readyState === WebSocket.OPEN) {
+          pc.createOffer({ iceRestart: true }).then(offer => {
+            pc.setLocalDescription(offer);
+            ws.current?.send(JSON.stringify({ type: 'offer', offer }));
+          }).catch(console.error);
+        }
       }
     };
 
-    peerConnection.current.ontrack = (event) => {
-      remoteStream.current.addTrack(event.track);
+    pc.oniceconnectionstatechange = () => {
+      const iceState = pc.iceConnectionState;
+      console.log('ICE connection state:', iceState);
+      if (iceState === 'disconnected') {
+        // Brief disconnection — wait for recovery
+        setTimeout(() => {
+          if (pc.iceConnectionState === 'disconnected') {
+            setConnectionState('disconnected');
+          }
+        }, 3000);
+      }
+    };
 
-      // CRITICAL FOR ZERO LATENCY
-      const receivers = peerConnection.current?.getReceivers() || [];
-      receivers.forEach(receiver => {
+    pc.ontrack = (event) => {
+      event.streams[0]?.getTracks().forEach(track => {
+        remoteStream.current.addTrack(track);
+      });
+
+      // Zero latency configuration
+      pc.getReceivers().forEach(receiver => {
         if ('playoutDelayHint' in receiver) {
           (receiver as any).playoutDelayHint = 0;
         }
@@ -60,7 +111,7 @@ export const useWebRTC = (roomId: string | null, isHost: boolean, localStream: M
       });
     };
 
-    peerConnection.current.onicecandidate = (event) => {
+    pc.onicecandidate = (event) => {
       if (event.candidate && ws.current?.readyState === WebSocket.OPEN) {
         ws.current.send(JSON.stringify({
           type: 'ice-candidate',
@@ -68,151 +119,169 @@ export const useWebRTC = (roomId: string | null, isHost: boolean, localStream: M
         }));
       }
     };
+
+    peerConnection.current = pc;
+    return pc;
   }, []);
 
   const connectSignaling = useCallback(() => {
-    if (!roomId) return;
+    const currentRoomId = roomIdRef.current;
+    if (!currentRoomId) return;
+    if (isCleaningUp.current) return;
 
-    ws.current = new WebSocket(SIGNALING_SERVER);
+    const socket = new WebSocket(SIGNALING_SERVER);
+    ws.current = socket;
 
-    ws.current.onopen = () => {
-      retryCount.current = 0; // Reset on successful connection
-      ws.current?.send(JSON.stringify({ type: 'join', roomId }));
+    socket.onopen = () => {
+      retryCount.current = 0;
+      socket.send(JSON.stringify({ type: 'join', roomId: currentRoomId }));
     };
 
-    ws.current.onclose = (event) => {
-      if (event.wasClean) return;
-      if (retryCount.current >= maxRetries) {
-        setError('Connection lost. Max retries exceeded.');
+    socket.onerror = (e) => {
+      console.error('WebSocket error:', e);
+    };
+
+    socket.onclose = (event) => {
+      if (isCleaningUp.current || event.wasClean) return;
+      if (retryCount.current >= 5) {
+        setError('Connection lost. Please refresh to try again.');
         return;
       }
-      
-      // Exponential backoff: 1s, 2s, 4s, 8s, etc.
-      const delay = Math.pow(2, retryCount.current) * 1000;
+      const delay = Math.min(Math.pow(2, retryCount.current) * 1000, 16000);
       retryCount.current += 1;
-      console.log(`WebSocket disconnected. Retrying in ${delay}ms (attempt ${retryCount.current}/${maxRetries})...`);
-      
-      setTimeout(() => {
-        connectSignaling();
+      console.log(`WebSocket closed. Retrying in ${delay}ms (attempt ${retryCount.current}/5)...`);
+      retryTimer.current = setTimeout(() => {
+        if (!isCleaningUp.current) {
+          connectSignaling();
+        }
       }, delay);
     };
 
-    ws.current.onmessage = async (event) => {
-      const data = JSON.parse(event.data);
+    socket.onmessage = async (event) => {
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      const pc = peerConnection.current;
+      if (!pc) return;
 
       switch (data.type) {
         case 'error':
           setError(data.message);
           break;
+
         case 'ready':
           setIsReady(true);
-          if (isHost && peerConnection.current) {
+          if (isHostRef.current) {
             try {
-              const offer = await peerConnection.current.createOffer();
-              await peerConnection.current.setLocalDescription(offer);
-              ws.current?.send(JSON.stringify({ type: 'offer', offer }));
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              socket.send(JSON.stringify({ type: 'offer', offer }));
             } catch (err) {
-              console.error(err);
+              console.error('Failed to create offer:', err);
             }
           }
           break;
+
         case 'offer':
-          if (!isHost && peerConnection.current) {
+          if (!isHostRef.current) {
             try {
-              await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.offer));
-              
-              // Flush buffered candidates
+              await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+              // Flush buffered ICE candidates
               for (const c of pendingCandidates.current) {
-                await peerConnection.current.addIceCandidate(new RTCIceCandidate(c));
+                await pc.addIceCandidate(new RTCIceCandidate(c));
               }
               pendingCandidates.current = [];
 
-              const answer = await peerConnection.current.createAnswer();
-              await peerConnection.current.setLocalDescription(answer);
-              ws.current?.send(JSON.stringify({ type: 'answer', answer }));
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              socket.send(JSON.stringify({ type: 'answer', answer }));
             } catch (err) {
-              console.error(err);
+              console.error('Failed to handle offer:', err);
             }
           }
           break;
+
         case 'answer':
-          if (isHost && peerConnection.current) {
+          if (isHostRef.current) {
             try {
-              await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer));
-              
-              // Flush buffered candidates
+              await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
               for (const c of pendingCandidates.current) {
-                await peerConnection.current.addIceCandidate(new RTCIceCandidate(c));
+                await pc.addIceCandidate(new RTCIceCandidate(c));
               }
               pendingCandidates.current = [];
             } catch (err) {
-              console.error(err);
+              console.error('Failed to handle answer:', err);
             }
           }
           break;
+
         case 'ice-candidate':
-          if (peerConnection.current) {
-            try {
-              if (peerConnection.current.remoteDescription) {
-                await peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate));
-              } else {
-                // Buffer candidates if description isn't set yet
-                pendingCandidates.current.push(data.candidate);
-              }
-            } catch (err) {
-              console.error(err);
+          try {
+            if (pc.remoteDescription) {
+              await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+            } else {
+              pendingCandidates.current.push(data.candidate);
             }
+          } catch (err) {
+            console.error('Failed to add ICE candidate:', err);
           }
           break;
+
         case 'peer-disconnected':
           setConnectionState('disconnected');
           setIsReady(false);
-          if (peerConnection.current) {
-            peerConnection.current.close();
-          }
-          initWebRTC(localStream);
-          // If we are host, we are ready to accept new clients again
-          if (isHost) {
+          // Recreate peer connection to accept a new client
+          createPeerConnection();
+          if (isHostRef.current) {
             setIsReady(true);
           }
           break;
       }
     };
-  }, [roomId, isHost]);
+  }, [createPeerConnection]);
 
+  // Main lifecycle
   useEffect(() => {
-    if (roomId) {
-      initWebRTC(localStream);
-      connectSignaling();
-    }
+    if (!roomId) return;
+    isCleaningUp.current = false;
+
+    createPeerConnection();
+    connectSignaling();
 
     return () => {
-      if (ws.current) ws.current.close();
-      if (peerConnection.current) peerConnection.current.close();
+      isCleaningUp.current = true;
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      if (ws.current) {
+        ws.current.close(1000, 'cleanup');
+        ws.current = null;
+      }
+      if (peerConnection.current) {
+        peerConnection.current.close();
+        peerConnection.current = null;
+      }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId]); 
+  }, [roomId, createPeerConnection, connectSignaling]);
 
+  // Apply stream settings to sender
   useEffect(() => {
     if (!peerConnection.current || !streamSettings) return;
     const senders = peerConnection.current.getSenders();
     const videoSender = senders.find(s => s.track?.kind === 'video');
-    
-    if (videoSender) {
-      const params = videoSender.getParameters();
-      if (!params.encodings) {
-        params.encodings = [{}];
-      }
-      if (params.encodings.length > 0) {
-        // Convert Mbps to bps
-        params.encodings[0].maxBitrate = parseInt(streamSettings.bitrate, 10) * 1000000;
-        params.encodings[0].maxFramerate = parseInt(streamSettings.fps, 10);
-        videoSender.setParameters(params).catch(e => console.error("Error setting RTCRtpSender parameters:", e));
-      }
+    if (!videoSender) return;
+
+    const params = videoSender.getParameters();
+    if (!params.encodings || params.encodings.length === 0) {
+      params.encodings = [{}];
     }
+    params.encodings[0].maxBitrate = parseInt(streamSettings.bitrate, 10) * 1_000_000;
+    params.encodings[0].maxFramerate = parseInt(streamSettings.fps, 10);
+    videoSender.setParameters(params).catch(console.error);
   }, [streamSettings]);
 
-  // Telemetry Polling
+  // Telemetry polling
   useEffect(() => {
     if (connectionState !== 'connected' || isHost) return;
 
@@ -235,23 +304,18 @@ export const useWebRTC = (roomId: string | null, isHost: boolean, localStream: M
           }
         });
 
-        // Calculate Bitrate (Mbps)
         let bitrateMbps = '0.00';
         if (lastTimestamp.current && lastBytesReceived.current) {
           const timeDelta = (timestamp - lastTimestamp.current) / 1000;
           const bytesDelta = bytesReceived - lastBytesReceived.current;
-          const bitsDelta = bytesDelta * 8;
-          bitrateMbps = (bitsDelta / timeDelta / 1_000_000).toFixed(2);
+          bitrateMbps = ((bytesDelta * 8) / timeDelta / 1_000_000).toFixed(2);
         }
-        
         lastBytesReceived.current = bytesReceived;
         lastTimestamp.current = timestamp;
 
-        // Calculate average jitter (ms)
         const jitterMs = ((jitterBufferDelay / jitterBufferEmittedCount) * 1000).toFixed(1);
-
         setStats({ fps, bitrateMbps, jitterMs });
-      } catch (e) {
+      } catch {
         // Ignore stats errors
       }
     }, 1000);
