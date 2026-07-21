@@ -1,30 +1,104 @@
 import React from 'react';
+import { PictureInPicture, Maximize2, Minimize2, Power } from 'lucide-react';
 
 interface MacDockProps {
   onDisconnect: () => void;
   onFullscreen: () => void;
   isFullscreen: boolean;
+  onTogglePiP?: () => void;
+  isPiPSupported?: boolean;
 }
 
-const MacDock: React.FC<MacDockProps> = ({ onDisconnect, onFullscreen, isFullscreen }) => {
+const MacDock: React.FC<MacDockProps> = ({ 
+  onDisconnect, 
+  onFullscreen, 
+  isFullscreen,
+  onTogglePiP,
+  isPiPSupported = false 
+}) => {
   return (
-    <div className="c-mac-dock-container">
-      <div className="c-mac-dock">
-        <button className="dock-icon disconnect" onClick={onDisconnect} title="Disconnect">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+    <div 
+      style={{
+        position: 'absolute',
+        bottom: '24px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.75rem',
+        padding: '0.6rem 1.25rem',
+        background: 'rgba(2, 4, 10, 0.75)',
+        backdropFilter: 'blur(30px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(30px) saturate(180%)',
+        border: '1px solid rgba(255, 255, 255, 0.12)',
+        borderRadius: '30px',
+        boxShadow: '0 15px 40px rgba(0, 0, 0, 0.8), 0 0 1px rgba(255, 255, 255, 0.2)'
+      }}
+    >
+      {onTogglePiP && isPiPSupported && (
+        <button 
+          onClick={onTogglePiP} 
+          title="Picture in Picture Mode"
+          style={{
+            background: 'rgba(255, 255, 255, 0.06)',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+            borderRadius: '50%',
+            width: '40px',
+            height: '40px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#38bdf8',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <PictureInPicture size={18} />
         </button>
-        <button className="dock-icon fullscreen" onClick={onFullscreen} title="Toggle Fullscreen">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            {isFullscreen ? (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-            )}
-          </svg>
-        </button>
-      </div>
+      )}
+
+      <button 
+        onClick={onFullscreen} 
+        title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+        style={{
+          background: 'rgba(255, 255, 255, 0.06)',
+          border: '1px solid rgba(255, 255, 255, 0.12)',
+          borderRadius: '50%',
+          width: '40px',
+          height: '40px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#ffffff',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease'
+        }}
+      >
+        {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+      </button>
+
+      <div style={{ width: '1px', height: '20px', background: 'rgba(255, 255, 255, 0.15)' }} />
+
+      <button 
+        onClick={onDisconnect} 
+        title="Disconnect Session"
+        style={{
+          background: 'rgba(244, 63, 94, 0.2)',
+          border: '1px solid rgba(244, 63, 94, 0.4)',
+          borderRadius: '50%',
+          width: '40px',
+          height: '40px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#fb7185',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease'
+        }}
+      >
+        <Power size={18} />
+      </button>
     </div>
   );
 };

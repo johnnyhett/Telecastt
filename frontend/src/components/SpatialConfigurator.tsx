@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-interface Device {
+export interface Device {
   id: string;
   name: string;
   width: number;
   height: number;
   position: { x: number; y: number };
+  isPrimary?: boolean;
 }
 
 interface SpatialConfiguratorProps {
@@ -15,14 +16,15 @@ interface SpatialConfiguratorProps {
 
 const SpatialConfigurator: React.FC<SpatialConfiguratorProps> = ({ devices, onLayoutChange }) => {
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [localDevices, setLocalDevices] = useState(devices);
+  const [localDevices, setLocalDevices] = useState<Device[]>(devices);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setLocalDevices(devices);
   }, [devices]);
 
-  const handlePointerDown = (e: React.PointerEvent, id: string) => {
+  const handlePointerDown = (e: React.PointerEvent, id: string, isPrimary?: boolean) => {
+    if (isPrimary) return; // Primary monitor is fixed
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     setActiveId(id);
   };
@@ -33,7 +35,13 @@ const SpatialConfigurator: React.FC<SpatialConfiguratorProps> = ({ devices, onLa
     setLocalDevices((prev) => 
       prev.map((d) => 
         d.id === id 
-          ? { ...d, position: { x: d.position.x + e.movementX, y: d.position.y + e.movementY } } 
+          ? { 
+              ...d, 
+              position: { 
+                x: Math.max(10, Math.min(380, d.position.x + e.movementX)), 
+                y: Math.max(10, Math.min(180, d.position.y + e.movementY)) 
+              } 
+            } 
           : d
       )
     );
@@ -42,58 +50,70 @@ const SpatialConfigurator: React.FC<SpatialConfiguratorProps> = ({ devices, onLa
   const handlePointerUp = (e: React.PointerEvent, id: string) => {
     if (activeId === id) {
       setActiveId(null);
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch { /* ignore */ }
       onLayoutChange(localDevices.map(d => ({ id: d.id, position: d.position })));
     }
   };
 
   return (
-    <div 
-      ref={containerRef}
-      className="glass-panel" 
-      style={{
-        width: '100%', 
-        height: '400px', 
-        position: 'relative',
-        overflow: 'hidden',
-        backgroundColor: 'var(--color-gray-900)'
-      }}
-    >
-      <div style={{ 
-        width: '100%', height: '100%', 
-        backgroundImage: 'linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px)',
-        backgroundSize: '20px 20px'
-      }} />
-      
-      {localDevices.map(device => (
-        <div
-          key={device.id}
-          onPointerDown={(e) => handlePointerDown(e, device.id)}
-          onPointerMove={(e) => handlePointerMove(e, device.id)}
-          onPointerUp={(e) => handlePointerUp(e, device.id)}
-          style={{
-            position: 'absolute',
-            left: `${device.position.x}px`,
-            top: `${device.position.y}px`,
-            width: `${Math.max(100, device.width / 10)}px`,
-            height: `${Math.max(60, device.height / 10)}px`,
-            border: '2px solid var(--color-accent-cyan)',
-            backgroundColor: 'rgba(96, 165, 250, 0.2)',
-            cursor: activeId === device.id ? 'grabbing' : 'grab',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#fff',
-            borderRadius: '8px',
-            userSelect: 'none',
-            touchAction: 'none'
-          }}
-        >
-          <div style={{ fontWeight: 'bold' }}>{device.name}</div>
-          <div style={{ fontSize: '12px' }}>{device.width}x{device.height}</div>
-        </div>
-      ))}
+    <div className="cc-dropdown-wrapper" style={{ padding: '1rem' }}>
+      <label className="cc-dropdown-label" style={{ marginBottom: '0.75rem' }}>
+        Spatial Layout Manager (Drag to Arrange)
+      </label>
+      <div 
+        ref={containerRef}
+        style={{
+          width: '100%', 
+          height: '220px', 
+          position: 'relative',
+          overflow: 'hidden',
+          backgroundColor: 'rgba(2, 4, 10, 0.85)',
+          borderRadius: '14px',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          backgroundImage: 'radial-gradient(rgba(56, 189, 248, 0.15) 1px, transparent 1px)',
+          backgroundSize: '16px 16px'
+        }}
+      >
+        {localDevices.map(device => (
+          <div
+            key={device.id}
+            onPointerDown={(e) => handlePointerDown(e, device.id, device.isPrimary)}
+            onPointerMove={(e) => handlePointerMove(e, device.id)}
+            onPointerUp={(e) => handlePointerUp(e, device.id)}
+            style={{
+              position: 'absolute',
+              left: `${device.position.x}px`,
+              top: `${device.position.y}px`,
+              width: `${Math.max(110, device.width / 16)}px`,
+              height: `${Math.max(70, device.height / 16)}px`,
+              border: device.isPrimary 
+                ? '2px solid rgba(255, 255, 255, 0.25)' 
+                : '2px solid var(--cyan)',
+              backgroundColor: device.isPrimary 
+                ? 'rgba(255, 255, 255, 0.05)' 
+                : 'rgba(56, 189, 248, 0.18)',
+              cursor: device.isPrimary ? 'default' : activeId === device.id ? 'grabbing' : 'grab',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              borderRadius: '10px',
+              userSelect: 'none',
+              touchAction: 'none',
+              boxShadow: device.isPrimary ? 'none' : '0 0 20px rgba(56, 189, 248, 0.3)',
+              transition: activeId === device.id ? 'none' : 'all 0.2s ease'
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: '0.8rem', letterSpacing: '0.5px' }}>{device.name}</div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--foreground-muted)', marginTop: '2px' }}>
+              {device.isPrimary ? 'Primary Host' : `${device.width}x${device.height}`}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

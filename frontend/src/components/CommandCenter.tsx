@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Monitor, Radio, Power, LayoutDashboard, ShieldCheck, Activity, Wifi, WifiOff } from 'lucide-react';
+import SpatialConfigurator from './SpatialConfigurator';
 import '../styles/command-center.css';
 
 interface CommandCenterProps {
@@ -102,15 +103,11 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
         <div className="cc-header-badges">
           <div className="cc-badge cc-badge-active">
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#34d399', display: 'inline-block' }} />
-            PROTOCOL V7.7
+            SESSION ACTIVE
           </div>
           <div className="cc-badge">
-            <ShieldCheck size={14} style={{ color: 'var(--color-cyan)' }} />
-            AES-256 DTLS
-          </div>
-          <div className="cc-badge">
-            <Activity size={14} style={{ color: '#38bdf8' }} />
-            AIR-GAP READY
+            <ShieldCheck size={14} style={{ color: 'var(--cyan)' }} />
+            DTLS ENCRYPTED
           </div>
         </div>
       </div>
@@ -127,7 +124,20 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
           
           <div className="cc-text-center">
             <div className={`cc-qr-wrapper ${isReady ? 'is-ready' : ''}`}>
-              <QRCodeSVG value={`http://${localIp}:5173?room=${activeRoomId}`} size={160} level="L" />
+              <QRCodeSVG 
+                value={`http://${localIp}:5173?room=${activeRoomId}`} 
+                size={180} 
+                level="H" 
+                marginSize={1}
+                imageSettings={{
+                  src: "/assets/logo.png",
+                  x: undefined,
+                  y: undefined,
+                  height: 36,
+                  width: 36,
+                  excavate: true
+                }}
+              />
             </div>
           </div>
           
@@ -222,6 +232,17 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
           <button className="cc-btn-secondary" onClick={openDisplaySettings}>
             Launch Windows Display Manager
           </button>
+
+          {/* Visual Drag-and-Drop Spatial Layout Editor */}
+          <SpatialConfigurator 
+            devices={[
+              { id: 'primary', name: 'Host PC', width: 1920, height: 1080, position: { x: 30, y: 55 }, isPrimary: true },
+              { id: 'client-1', name: 'Secondary Display', width: 1920, height: 1080, position: { x: 190, y: 55 } }
+            ]}
+            onLayoutChange={(layout) => {
+              console.log('Spatial Layout Updated:', layout);
+            }}
+          />
 
           <div className="cc-dropdown-wrapper" style={{ marginTop: 'auto', background: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#10b981', marginBottom: '0.5rem' }}>

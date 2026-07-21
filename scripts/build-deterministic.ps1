@@ -1,37 +1,37 @@
 $ErrorActionPreference = "Stop"
 
-# Set deterministic timestamp
 $env:SOURCE_DATE_EPOCH = "1672531200"
 
 $BackendDir = Join-Path $PSScriptRoot "..\backend"
 $FrontendDir = Join-Path $PSScriptRoot "..\frontend"
 $DistDir = Join-Path $FrontendDir "dist"
 
-Write-Host "Running npm ci in backend..."
-Set-Location $BackendDir
-if (Test-Path "package.json") { npm ci } else { Write-Host "No package.json in backend, skipping npm ci." }
-
-Write-Host "Running npm ci in frontend..."
+Write-Host "Building frontend dist..."
 Set-Location $FrontendDir
-if (Test-Path "package.json") { npm ci } else { Write-Host "No package.json in frontend, skipping npm ci." }
 
-Write-Host "Building frontend..."
-if (Test-Path "package.json") { npm run build } else { Write-Host "No package.json in frontend, skipping build." }
+$ViteBin = Join-Path $FrontendDir "node_modules\.bin\vite.cmd"
+if (Test-Path $ViteBin) {
+    & $ViteBin build
+} else {
+    npm run build
+}
 
-Write-Host "Computing hashes..."
+Write-Host "Computing SHA-256 manifest..."
 $ManifestPath = Join-Path $DistDir "BUILD_MANIFEST.sha256"
 
 if (Test-Path $DistDir) {
-    $Files = Get-ChildItem -Path $DistDir -Recurse -File
+    $AbsDist = (Resolve-Path $DistDir).Path
+    $Files = Get-ChildItem -Path $AbsDist -Recurse -File | Where-Object { $_.Name -ne "BUILD_MANIFEST.sha256" }
     $Hashes = @()
+
     foreach ($File in $Files) {
         $Hash = (Get-FileHash -Path $File.FullName -Algorithm SHA256).Hash
-        $RelativePath = $File.FullName.Substring($DistDir.Length + 1).Replace('\', '/')
-        $Hashes += "$Hash  $RelativePath"
+        $RelPath = $File.FullName.Substring($AbsDist.Length).TrimStart('\').Replace('\', '/')
+        $Hashes += "$Hash  $RelPath"
     }
     
     $Hashes | Out-File -FilePath $ManifestPath -Encoding utf8
-    Write-Host "Deterministic build complete. Hashes saved to BUILD_MANIFEST.sha256"
+    Write-Host "Deterministic build complete. Hashes written to BUILD_MANIFEST.sha256"
 } else {
     Write-Warning "Dist directory not found!"
 }

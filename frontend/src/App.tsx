@@ -5,6 +5,9 @@ import { useWakeLock } from './hooks/useWakeLock';
 import { useDataChannels } from './hooks/useDataChannels';
 import { useInputCapture } from './hooks/useInputCapture';
 import { useClipboardSync } from './hooks/useClipboardSync';
+import { useBatteryAware } from './hooks/useBatteryAware';
+import { useAdaptiveQuality } from './hooks/useAdaptiveQuality';
+import { usePictureInPicture } from './hooks/usePictureInPicture';
 import type { InputEventData } from './hooks/useInputCapture';
 
 import VideoSurface from './components/VideoSurface';
@@ -36,6 +39,17 @@ function App() {
 
   // Auto wake lock during active streaming on client
   useWakeLock(mode === 'client' && connectionState === 'connected');
+
+  // Battery Awareness: degrade streaming parameters on low battery
+  const battery = useBatteryAware(0.15);
+  useEffect(() => {
+    if (battery.shouldDegrade) {
+      setStreamSettings(prev => ({ ...prev, fps: '30', bitrate: '10' }));
+    }
+  }, [battery.shouldDegrade]);
+
+  // Adaptive Quality monitor
+  useAdaptiveQuality(peerConnection);
 
   // ---------- CLIENT SIDE: Touch/Mouse capture → data channel ----------
   // Throttle mouse moves to max ~60 events/sec to avoid flooding
@@ -214,6 +228,10 @@ function App() {
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  // Picture-in-Picture Support
+  const videoElemRef = useRef<HTMLVideoElement | null>(null);
+  const { togglePiP, isSupported: isPiPSupported } = usePictureInPicture(videoElemRef);
+
   // ---------------------------------------------------------
   // LIVE STREAM VIEW (CLIENT)
   // ---------------------------------------------------------
@@ -222,7 +240,6 @@ function App() {
       <div 
         ref={(el) => {
           videoContainerRef.current = el;
-          // Auto-focus so keyboard events are captured immediately
           if (el) el.focus();
         }}
         className="app-container" 
@@ -235,6 +252,8 @@ function App() {
           onDisconnect={handleDisconnect} 
           onFullscreen={toggleFullscreen} 
           isFullscreen={isFullscreen} 
+          onTogglePiP={togglePiP}
+          isPiPSupported={isPiPSupported}
         />
       </div>
     );
@@ -325,7 +344,7 @@ function App() {
           <span className="cc-badge">📱 iPhone / Android</span>
           <span className="cc-badge">💻 Mac / Windows</span>
           <span className="cc-badge">📱 iPad / Tablets</span>
-          <span className="cc-badge cc-badge-active">⚡ &lt;5ms Native Touch</span>
+          <span className="cc-badge cc-badge-active">⚡ Native Touch Control</span>
         </div>
 
         {/* Action Controls */}
