@@ -1,87 +1,62 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;600;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 :root {
-  /* Ultra-Luxury Color Tokens */
-  --color-bg-base: #030712;
-  --color-bg-surface: rgba(15, 23, 42, 0.7);
-  --color-bg-surface-hover: rgba(30, 41, 59, 0.8);
+  /* Cinema Dark Pro Palette */
+  --bg-deep: #020203;
+  --bg-base: #050506;
+  --bg-elevated: #0a0a0c;
+  --surface-card: rgba(15, 15, 20, 0.7);
+  --surface-hover: rgba(255, 255, 255, 0.04);
   
-  --color-primary: #3b82f6;
-  --color-primary-glow: rgba(59, 130, 246, 0.4);
-  --color-cyan: #38bdf8;
-  --color-cyan-glow: rgba(56, 189, 248, 0.4);
-  --color-indigo: #6366f1;
-  --color-purple: #8b5cf6;
-  --color-emerald: #10b981;
-  --color-rose: #f43f5e;
-  
-  --color-text-bright: #ffffff;
-  --color-text-main: rgba(243, 244, 246, 0.92);
-  --color-text-muted: rgba(156, 163, 175, 0.75);
-  --color-text-dim: rgba(107, 114, 128, 0.5);
+  --foreground: #EDEDEF;
+  --foreground-muted: #8A8F98;
+  --foreground-dim: #4B5563;
 
-  /* Advanced Glass Tokens */
-  --glass-bg: rgba(15, 23, 42, 0.65);
-  --glass-bg-card: rgba(15, 23, 42, 0.85);
-  --glass-border: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.02) 100%);
-  --glass-border-simple: rgba(255, 255, 255, 0.08);
-  --glass-border-glow: rgba(56, 189, 248, 0.3);
-  
-  --blur-glass: blur(32px) saturate(190%);
-  --blur-glass-heavy: blur(48px) saturate(220%);
+  /* Accent Colors */
+  --accent: #5E6AD2;
+  --accent-glow: rgba(94, 106, 210, 0.25);
+  --cyan: #38BDF8;
+  --cyan-glow: rgba(56, 189, 248, 0.25);
+  --emerald: #10B981;
+  --emerald-glow: rgba(16, 185, 129, 0.25);
+  --rose: #F43F5E;
 
-  /* Shadows */
-  --shadow-neon-cyan: 0 0 30px rgba(56, 189, 248, 0.25);
-  --shadow-neon-blue: 0 0 30px rgba(59, 130, 246, 0.25);
-  --shadow-card-heavy: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 1px rgba(255, 255, 255, 0.1);
+  /* Glass & Borders */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-highlight: rgba(255, 255, 255, 0.16);
+  --radius: 16px;
+  --radius-lg: 24px;
+  --radius-sm: 10px;
+
+  /* Animations & Motion */
+  --easing: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
 
   /* Fonts */
-  --font-main: 'Inter', system-ui, sans-serif;
-  --font-display: 'Outfit', system-ui, sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-heading: 'Outfit', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
 
 body {
-  background-color: var(--color-bg-base);
+  background-color: var(--bg-deep);
   background-image: 
-    radial-gradient(circle at 15% 15%, rgba(59, 130, 246, 0.18), transparent 45%),
-    radial-gradient(circle at 85% 85%, rgba(139, 92, 246, 0.15), transparent 45%),
-    radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.08), transparent 60%);
-  color: var(--color-text-main);
-  font-family: var(--font-main);
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(94, 106, 210, 0.15), transparent),
+    radial-gradient(ellipse 60% 40% at 85% 95%, rgba(56, 189, 248, 0.1), transparent);
+  color: var(--foreground);
+  font-family: var(--font-sans);
   margin: 0;
   padding: 0;
   min-height: 100vh;
   overflow-x: hidden;
-  position: relative;
 }
 
-/* Subtle Cybernetic Grid Overlay */
-body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background-size: 40px 40px;
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-  pointer-events: none;
-  z-index: 0;
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
 }
 
-#root {
-  position: relative;
-  z-index: 1;
-}
-
-h1, h2, h3, h4, h5, h6, .display-font {
-  font-family: var(--font-display);
-}
-
-.mono-font {
+.mono {
   font-family: var(--font-mono);
 }
 
