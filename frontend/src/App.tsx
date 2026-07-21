@@ -288,42 +288,44 @@ function App() {
   }
 
   // ---------------------------------------------------------
-  // SELECTION VIEW (HERO SELECTION)
+  // SELECTION VIEW (HERO SELECTION MATRIX)
   // ---------------------------------------------------------
   return (
     <div className="app-container fade-enter-active" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', width: '100vw', padding: '2rem' }}>
-      <div className="c-glass-card" style={{ maxWidth: 520, width: '100%', textAlign: 'center', position: 'relative' }}>
+      <div className="c-glass-card" style={{ maxWidth: 540, width: '100%', textAlign: 'center', position: 'relative' }}>
         
         {/* Glow Halo */}
         <div style={{
           position: 'absolute',
-          top: '-60px',
+          top: '-80px',
           left: '50%',
           transform: 'translateX(-50%)',
-          width: '200px',
-          height: '200px',
-          background: 'radial-gradient(circle, var(--accent-glow) 0%, transparent 70%)',
-          pointerEvents: 'none'
+          width: '260px',
+          height: '260px',
+          background: 'radial-gradient(circle, var(--cyan-glow) 0%, var(--accent-glow) 50%, transparent 80%)',
+          pointerEvents: 'none',
+          filter: 'blur(30px)'
         }} />
 
         <img 
           src="/assets/logo.png" 
           alt="Telecastt Logo" 
-          style={{ width: 90, height: 90, margin: '0 auto 1.5rem auto', filter: 'drop-shadow(0 10px 25px rgba(94, 106, 210, 0.4))' }} 
+          style={{ width: 96, height: 96, margin: '0 auto 1.5rem auto', filter: 'drop-shadow(0 12px 30px rgba(56, 189, 248, 0.45))' }} 
         />
         
-        <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: '2.5rem', fontWeight: 800, letterSpacing: '-0.5px', color: '#ffffff', marginBottom: '0.5rem' }}>
+        <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: '2.75rem', fontWeight: 900, letterSpacing: '-0.5px', color: '#ffffff', marginBottom: '0.5rem' }}>
           Telecastt
         </h1>
-        <p style={{ color: 'var(--foreground-muted)', fontSize: '0.95rem', marginBottom: '2.5rem', lineHeight: '1.5' }}>
-          Ultra-low latency wireless display extension & remote workspace matrix.
+        <p style={{ color: 'var(--foreground-muted)', fontSize: '0.95rem', marginBottom: '2rem', lineHeight: '1.6' }}>
+          Cross-Ecosystem Wireless Display Matrix & Remote KVM Control. Seamlessly turn any iPhone, Android, iPad, or Tablet into a high-fps extended monitor.
         </p>
 
-        {/* Feature Badges */}
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem', marginBottom: '2.5rem', flexWrap: 'wrap' }}>
-          <span className="cc-badge">🔒 DTLS 1.3</span>
-          <span className="cc-badge">⚡ &lt;5ms Latency</span>
-          <span className="cc-badge">🖥️ 4K 144Hz</span>
+        {/* Cross-Ecosystem Support Badges */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '0.6rem', marginBottom: '2.25rem', flexWrap: 'wrap' }}>
+          <span className="cc-badge">📱 iPhone / Android</span>
+          <span className="cc-badge">💻 Mac / Windows</span>
+          <span className="cc-badge">📱 iPad / Tablets</span>
+          <span className="cc-badge cc-badge-active">⚡ &lt;5ms Native Touch</span>
         </div>
 
         {/* Action Controls */}
@@ -334,7 +336,7 @@ function App() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', margin: '0.5rem 0' }}>
             <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-            <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--foreground-dim)' }}>or join session</span>
+            <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1.5px', color: 'var(--foreground-dim)', fontWeight: 700 }}>or join as extended display</span>
             <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
           </div>
 
@@ -342,14 +344,14 @@ function App() {
             <input 
               type="text" 
               className="c-input" 
-              placeholder="ENTER CODE" 
+              placeholder="ROOM CODE" 
               maxLength={6}
               value={roomIdInput}
               onChange={(e) => setRoomIdInput(e.target.value.toUpperCase())}
             />
             <button 
               className="c-button c-button-secondary" 
-              style={{ width: 'auto', padding: '0 1.5rem' }}
+              style={{ width: 'auto', padding: '0 1.75rem', flexShrink: 0 }}
               disabled={roomIdInput.trim().length !== 6}
               onClick={handleJoinClient}
             >
