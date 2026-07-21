@@ -4,6 +4,7 @@ import { useDisplayMedia } from './hooks/useDisplayMedia';
 import { useWakeLock } from './hooks/useWakeLock';
 import { useDataChannels } from './hooks/useDataChannels';
 import { useInputCapture } from './hooks/useInputCapture';
+import { useClipboardSync } from './hooks/useClipboardSync';
 import type { InputEventData } from './hooks/useInputCapture';
 
 import VideoSurface from './components/VideoSurface';
@@ -85,16 +86,30 @@ function App() {
           const d = eventData.data;
           if (d.touches && d.touches.length > 0) {
             const t = d.touches[0];
-            if (d.gesture === 'tap') {
-              payload = { action: 'click', normalizedX: t.normalizedX, normalizedY: t.normalizedY, button: 0 };
-            } else if (d.gesture === 'drag') {
-              payload = { action: 'move', normalizedX: t.normalizedX, normalizedY: t.normalizedY, button: 0 };
-            }
+            payload = {
+              action: 'touch',
+              phase: d.gesture === 'tap' ? 'down' : 'move',
+              normalizedX: t.normalizedX,
+              normalizedY: t.normalizedY,
+              touchId: t.identifier || 1
+            };
           } else if (d.gesture === 'release') {
-            payload = { action: 'mouseup', normalizedX: 0, normalizedY: 0, button: 0 };
+            payload = {
+              action: 'touch',
+              phase: 'up',
+              normalizedX: 0,
+              normalizedY: 0,
+              touchId: 1
+            };
           }
         } else if (eventData.type === 'wheel') {
           payload = { action: 'wheel', deltaY: eventData.data.deltaY };
+        } else if (eventData.type === 'key') {
+          const d = eventData.data;
+          payload = {
+            action: d.down ? 'keydown' : 'keyup',
+            key: d.key || d.code || ''
+          };
         }
 
         // Send via existing WebSocket (NOT via HTTP fetch — that was the bug)
@@ -114,6 +129,9 @@ function App() {
       channels.critical?.removeEventListener('message', handleMessage);
     };
   }, [mode, channels.critical, signalingSocket]);
+
+  // Clipboard sync between host and client via the low-priority data channel
+  useClipboardSync(channels.low || null, mode === 'client' || mode === 'host');
 
   // Auto-join via Query Parameter (e.g., from QR Code scan)
   useEffect(() => {
@@ -202,9 +220,13 @@ function App() {
   if (connectionState === 'connected' && mode === 'client') {
     return (
       <div 
-        ref={videoContainerRef}
+        ref={(el) => {
+          videoContainerRef.current = el;
+          // Auto-focus so keyboard events are captured immediately
+          if (el) el.focus();
+        }}
         className="app-container" 
-        style={{ width: '100vw', height: '100vh', background: 'black', position: 'relative', overflow: 'hidden', touchAction: 'none' }}
+        style={{ width: '100vw', height: '100vh', background: 'black', position: 'relative', overflow: 'hidden', touchAction: 'none', outline: 'none' }}
         tabIndex={0}
       >
         <VideoSurface stream={remoteStream} />

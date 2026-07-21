@@ -3,47 +3,65 @@ const path = require('path');
 
 const SCRIPTS_DIR = path.join(__dirname, '..', '..', 'scripts');
 
-function runPowerShell(scriptName, args = []) {
-  return new Promise((resolve, reject) => {
+function runPowerShell(scriptName, args = [], elevate = false) {
+  return new Promise((resolve) => {
     const scriptPath = path.join(SCRIPTS_DIR, scriptName);
-    const cmd = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" ${args.join(' ')}`;
-    
+    let cmd;
+
+    if (elevate) {
+      // Launch via PowerShell with Administrator elevation (triggers Windows UAC prompt if needed)
+      cmd = `powershell -ExecutionPolicy Bypass -Command "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-ExecutionPolicy Bypass -File \\"${scriptPath}\\" ${args.join(' ')}'"`;
+    } else {
+      cmd = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" ${args.join(' ')}`;
+    }
+
     exec(cmd, { windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
-        return resolve({ success: false, error: stderr || error.message });
+        // Fallback execution without elevation if user cancels UAC
+        const fallbackCmd = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" ${args.join(' ')}`;
+        return exec(fallbackCmd, { windowsHide: true }, (fbErr, fbOut) => {
+          if (fbErr) {
+            return resolve({ success: false, error: stderr || error.message });
+          }
+          parseOutput(fbOut, resolve);
+        });
       }
-      try {
-        const jsonMatch = stdout.trim().match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          return resolve({ success: true, data: parsed });
-        }
-        return resolve({ success: true, output: stdout.trim() });
-      } catch (e) {
-        return resolve({ success: true, output: stdout.trim() });
-      }
+      parseOutput(stdout, resolve);
     });
   });
 }
 
+function parseOutput(stdout, resolve) {
+  try {
+    const jsonMatch = stdout.trim().match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return resolve({ success: true, data: parsed });
+    }
+    return resolve({ success: true, output: stdout.trim() });
+  } catch {
+    return resolve({ success: true, output: stdout.trim() });
+  }
+}
+
 async function getStatus() {
-  return await runPowerShell('Configure-VirtualDisplay.ps1', ['-Action', 'Status']);
+  return await runPowerShell('Configure-VirtualDisplay.ps1', ['-Action', 'Status'], false);
 }
 
 async function installDriver() {
-  return await runPowerShell('Install-VirtualMonitor.ps1', []);
+  return await runPowerShell('Install-VirtualMonitor.ps1', [], true);
 }
 
 async function uninstallDriver() {
-  return await runPowerShell('Install-VirtualMonitor.ps1', ['-Uninstall']);
+  return await runPowerShell('Install-VirtualMonitor.ps1', ['-Uninstall'], true);
 }
 
 async function enableDisplay() {
-  return await runPowerShell('Configure-VirtualDisplay.ps1', ['-Action', 'Enable']);
+  return await runPowerShell('Configure-VirtualDisplay.ps1', ['-Action', 'Enable'], true);
 }
 
 async function disableDisplay() {
-  return await runPowerShell('Configure-VirtualDisplay.ps1', ['-Action', 'Disable']);
+  return await runPowerShell('Configure-VirtualDisplay.ps1', ['-Action', 'Disable'], true);
 }
 
 async function configureDisplay(width, height, refreshRate) {
@@ -52,7 +70,7 @@ async function configureDisplay(width, height, refreshRate) {
     '-Width', width,
     '-Height', height,
     '-RefreshRate', refreshRate
-  ]);
+  ], false);
 }
 
 module.exports = {

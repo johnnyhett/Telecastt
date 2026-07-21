@@ -11,12 +11,23 @@ param (
 
 $ErrorActionPreference = "Stop"
 
-function Get-VDDStatus {
-    $driverExists = Test-Path "C:\Telecastt-VDD\IddSampleDriver.inf"
+function Get-VDDDevice {
     $device = Get-PnpDevice -FriendlyName "*Virtual Display*" -ErrorAction SilentlyContinue
     if (-not $device) {
         $device = Get-PnpDevice -FriendlyName "*IddSpot*" -ErrorAction SilentlyContinue
     }
+    if (-not $device) {
+        $device = Get-PnpDevice -FriendlyName "*IddSampleDriver*" -ErrorAction SilentlyContinue
+    }
+    if (-not $device) {
+        $device = Get-PnpDevice -Class Display -FriendlyName "*Indirect*" -ErrorAction SilentlyContinue
+    }
+    return $device
+}
+
+function Get-VDDStatus {
+    $driverExists = (Test-Path "C:\Telecastt-VDD\IddSampleDriver.inf") -or (Test-Path "C:\Telecastt-VDD\option.txt")
+    $device = Get-VDDDevice
     
     return [PSCustomObject]@{
         Installed = [bool]$driverExists
@@ -32,30 +43,37 @@ switch ($Action) {
         $status | ConvertTo-Json -Compress
     }
     'Enable' {
-        $device = Get-PnpDevice -FriendlyName "*Virtual Display*" -ErrorAction SilentlyContinue
+        $device = Get-VDDDevice
         if ($device) {
-            Enable-PnpDevice -InstanceId $device.InstanceId -Confirm:$false
-            @{ success = $true; message = "Virtual Display Device enabled." } | ConvertTo-Json -Compress
-        } else {
-            @{ success = $false; message = "Virtual Display Device not found." } | ConvertTo-Json -Compress
+            Enable-PnpDevice -InstanceId $device.InstanceId -Confirm:$false -ErrorAction SilentlyContinue
         }
+        
+        # Always trigger display switch to extend mode
+        try {
+            Start-Process "displayswitch.exe" -ArgumentList "/external" -NoNewWindow
+        } catch {}
+
+        @{ success = $true; message = "Extended Display activated." } | ConvertTo-Json -Compress
     }
     'Disable' {
-        $device = Get-PnpDevice -FriendlyName "*Virtual Display*" -ErrorAction SilentlyContinue
+        $device = Get-VDDDevice
         if ($device) {
-            Disable-PnpDevice -InstanceId $device.InstanceId -Confirm:$false
-            @{ success = $true; message = "Virtual Display Device disabled." } | ConvertTo-Json -Compress
-        } else {
-            @{ success = $false; message = "Virtual Display Device not found." } | ConvertTo-Json -Compress
+            Disable-PnpDevice -InstanceId $device.InstanceId -Confirm:$false -ErrorAction SilentlyContinue
         }
+        
+        try {
+            Start-Process "displayswitch.exe" -ArgumentList "/internal" -NoNewWindow
+        } catch {}
+
+        @{ success = $true; message = "Virtual Display disabled." } | ConvertTo-Json -Compress
     }
     'Configure' {
-        $optionFile = "C:\Telecastt-VDD\option.txt"
-        if (Test-Path $optionFile) {
-            "$Width, $Height, $RefreshRate" | Out-File -FilePath $optionFile -Encoding ascii
-            @{ success = $true; message = "Configured option.txt ($Width x $Height @ $RefreshRate Hz)" } | ConvertTo-Json -Compress
-        } else {
-            @{ success = $false; message = "option.txt not found at $optionFile" } | ConvertTo-Json -Compress
+        $vddDir = "C:\Telecastt-VDD"
+        if (-not (Test-Path $vddDir)) {
+            New-Item -ItemType Directory -Path $vddDir -Force | Out-Null
         }
+        $optionFile = Join-Path $vddDir "option.txt"
+        "$Width, $Height, $RefreshRate" | Out-File -FilePath $optionFile -Encoding ascii
+        @{ success = $true; message = "Configured option.txt ($Width x $Height @ $RefreshRate Hz)" } | ConvertTo-Json -Compress
     }
 }

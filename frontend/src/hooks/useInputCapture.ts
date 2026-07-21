@@ -18,7 +18,7 @@ export interface MouseInputData {
 }
 
 export interface TouchInputData {
-  touches: Array<{ x: number; y: number; normalizedX: number; normalizedY: number }>;
+  touches: Array<{ x: number; y: number; normalizedX: number; normalizedY: number; identifier: number }>;
   gesture: 'tap' | 'drag' | 'pinch' | 'release';
 }
 
@@ -128,7 +128,7 @@ export function useInputCapture(
     const handleTouchStart = (e: TouchEvent) => {
       const touches = Array.from(e.touches).map(t => {
         const { normalizedX, normalizedY } = getNormalizedCoords(t.clientX, t.clientY);
-        return { x: t.clientX, y: t.clientY, normalizedX, normalizedY };
+        return { x: t.clientX, y: t.clientY, normalizedX, normalizedY, identifier: t.identifier };
       });
 
       onInput({
@@ -144,7 +144,7 @@ export function useInputCapture(
     const handleTouchMove = (e: TouchEvent) => {
       const touches = Array.from(e.touches).map(t => {
         const { normalizedX, normalizedY } = getNormalizedCoords(t.clientX, t.clientY);
-        return { x: t.clientX, y: t.clientY, normalizedX, normalizedY };
+        return { x: t.clientX, y: t.clientY, normalizedX, normalizedY, identifier: t.identifier };
       });
 
       onInput({
