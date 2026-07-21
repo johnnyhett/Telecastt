@@ -1,63 +1,111 @@
 <div align="center">
-  <img src="assets/logo.png" alt="Telecastt Logo" width="200" style="border-radius: 20px; margin-bottom: 20px;" />
+  <img src="assets/logo.png" alt="Telecastt Logo" width="160" style="border-radius: 20px; filter: drop-shadow(0 0 30px rgba(56, 189, 248, 0.4)); margin-bottom: 15px;" />
   
   <h1>TELECASTT</h1>
-  <p><strong>Enterprise Stream Control Protocol</strong></p>
+  <p><em>“Screens unchained. Beyond ecosystems, beyond wires — turn any glass into your extended horizon.”</em></p>
 
-  [![React](https://img.shields.io/badge/React-18.x-2563eb?style=flat-square&logo=react)](#)
-  [![Vite](https://img.shields.io/badge/Vite-4.x-60a5fa?style=flat-square&logo=vite)](#)
-  [![Node.js](https://img.shields.io/badge/Node.js-20.x-1e293b?style=flat-square&logo=nodedotjs)](#)
-  [![WebSockets](https://img.shields.io/badge/WebSockets-Raw_ws-0f172a?style=flat-square&logo=socketdotio)](#)
+  <p>
+    <a href="#overview">Overview</a> &bull;
+    <a href="#key-features">Key Features</a> &bull;
+    <a href="#architecture">Architecture</a> &bull;
+    <a href="#quickstart">Quickstart</a> &bull;
+    <a href="#security">Security</a> &bull;
+    <a href="#license">License</a>
+  </p>
 </div>
 
 ---
 
 ## Overview
 
-Telecastt is a high-performance WebRTC application engineered to seamlessly extend a Windows desktop environment to any browser-enabled device. 
+**Telecastt** is a high-performance WebRTC display matrix platform engineered to seamlessly extend a desktop environment to any device with a web browser — breaking down walled ecosystems across iPhone, iPad, Android, Mac, Windows, and Linux.
 
-By leveraging native OS-level EDID spoofing combined with hardware-accelerated WebRTC and a custom network topology manager, Telecastt delivers enterprise-grade performance and uncompromising video fidelity across local area networks.
+By combining native Windows User32 Touch Injection (`InjectTouchInput`), automated Virtual Display Driver (VDD) provisioning, bidirectional WebRTC data channel clipboard synchronization, and a Cinema Dark Pro command matrix dashboard, Telecastt provides an unchained multi-monitor experience with remote touch and KVM control.
+
+---
+
+## Key Features
+
+- ⚡ **Native Windows Touch Control:** Employs Win32 `InjectTouchInput` to inject native touch contacts on extended displays without snatching or moving your host PC's physical mouse cursor.
+- 🖥️ **Virtual Display Driver (VDD):** Automated Virtual Display Driver setup with UAC administrative elevation and automatic Windows `displayswitch.exe` desktop extension topology.
+- 📱 **Cross-Ecosystem Compatibility:** Seamlessly connect iPhones, iPads, Android smartphones, tablets, laptops, and smart TVs into a unified display matrix.
+- 📋 **Live Clipboard Synchronization:** Real-time bidirectional text clipboard sync over WebRTC data channels between host and client devices.
+- 🎛️ **Spatial Layout Manager:** Drag-and-drop 2D monitor layout configurator for positioning secondary displays (left, right, above, below) relative to the primary host PC.
+- 🔋 **Battery-Aware Adaptive Quality:** Automatic framerate and bitrate governor that scales stream parameters down when client device battery is constrained.
+- 🖼️ **Picture-in-Picture & Fullscreen Lock:** Support for OS-level floating Picture-in-Picture windows and landscape orientation locking.
+- 🔒 **Cryptographic Session Pairing:** CSPRNG-generated room authentication codes and high-density QR code scanning with embedded brand telemetry.
+
+---
 
 ## Architecture
 
-- **Hardware-Accelerated Capture:** Utilizes strict `resizeMode: "none"` constraints to prevent browser-level downscaling, enforcing hardware encoder prioritization (H.264/VP8).
-- **Automated IDD Provisioning:** Includes a robust PowerShell deployment script for seamless installation and configuration of an open-source Windows Indirect Display Driver (IDD).
-- **Secure Signaling:** A lightweight, pure-WebSocket Node.js signaling server utilizing Cryptographically Secure Pseudorandom Number Generators (CSPRNG) for room authentication.
-- **Dynamic Topology Control:** A native Command Center UI that allows administrators to manually configure display positioning, hardware resolution constraints, refresh rate governance, and target bitrate throttling.
+```
+                       ┌──────────────────────────────────────┐
+                       │           Host Desktop (PC)          │
+                       │  - WebRTC Hardware Media Capture     │
+                       │  - Win32 InjectTouchInput Controller │
+                       │  - Virtual Display Driver (VDD)      │
+                       └──────────────────┬───────────────────┘
+                                          │
+                                WebSocket Signaling (Port 3001)
+                                WebRTC Peer-to-Peer Data Channels
+                                          │
+    ┌─────────────────────────────────────┴─────────────────────────────────────┐
+    │                                                                           │
+┌───▼──────────────────────┐   ┌──────────────────────────┐   ┌─────────────────▼────────┐
+│   iOS / iPadOS (Safari)   │   │  Android (Chrome/Firefox)│   │  macOS / Linux Client    │
+│  - Native Touch Receiver │   - Multi-Touch Gestures     │   - Floating PiP Window      │
+│  - Live Clipboard Sync   │   - Battery Adaptive Quality │   - Telemetry Dashboard      │
+└──────────────────────────┘   └──────────────────────────┘   └──────────────────────────┘
+```
 
-## Installation & Deployment
+---
 
-### 1. Virtual Display Provisioning (Windows Host)
-Telecastt requires a virtual monitor to extend the desktop environment.
-1. Launch PowerShell with **Administrator privileges**.
-2. Execute the provisioning script:
-   ```powershell
-   .\scripts\Install-VirtualMonitor.ps1
-   ```
-3. Navigate to **Windows Display Settings**, select **Extend these displays**, and configure the virtual monitor to match your required enterprise topology.
+## Quickstart
 
-### 2. Signaling Server Deployment
-The Node.js WebSocket server is required to broker the peer-to-peer connection.
+### 1. Start the Signaling Server
 ```bash
 cd backend
 npm install
 npm start
 ```
+*The signaling server starts on port `3001`.*
 
-### 3. Client Interface Deployment
+### 2. Launch the Web Command Center
 ```bash
 cd frontend
 npm install
-npm run build
 npm run dev
 ```
+*Access the host dashboard at `http://localhost:5173`.*
 
-### 4. Connection Protocol
-1. On the **Host Machine**, navigate to `http://localhost:5173`. 
-2. Select **Initialize Host Node** and select the designated Virtual Monitor to capture.
-3. A secure 6-character **Session ID** will be generated and displayed in the Command Center.
-4. On the **Client Device**, navigate to the Host's local network IP address (e.g., `http://192.168.1.50:5173`), enter the Session ID, and select **Connect to Host** to initiate the secure stream.
+### 3. Connect a Secondary Screen
+1. On your **Host PC**, open `http://localhost:5173` and click **Initialize Host Matrix**.
+2. Scan the generated QR Code or enter the 6-character Session ID on any client device (e.g. `http://<HOST-IP>:5173`).
+3. (Optional) In the Command Center, click **Install Driver** to enable true Extended Display Mode via Windows UAC elevation.
+
+---
+
+## Technical Specifications
+
+| Component | Stack / Protocol |
+| :--- | :--- |
+| **Frontend** | React, TypeScript, Vite, WebRTC API |
+| **Backend** | Node.js, Express, WebSocket (`ws`), Rate Limiter |
+| **Input Controller** | Win32 User32 C# Interop (`InjectTouchInput`, `SetCursorPos`, `keybd_event`) |
+| **Display Provisioning** | Windows Indirect Display Driver (IDD) & `displayswitch.exe` |
+| **Encryption** | WebRTC DTLS 1.3, CSPRNG Session Tokens |
+
+---
+
+## Security
+
+- **Session Isolation:** Room codes are generated using cryptographically secure random bytes with strict 2-peer limits per room.
+- **Per-IP Rate Limiting:** Token-bucket rate limiting prevents brute-force room validation attacks.
+- **Process Pipe Isolation:** Native input injection executes via persistent stdin stream isolation to avoid process-spawning overhead and memory leaks.
+
+---
 
 ## License
-Distributed under the MIT License.
-  
+
+Distributed under the MIT License. See `LICENSE` for more information.

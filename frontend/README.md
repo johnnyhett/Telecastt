@@ -1,32 +1,18 @@
-# React + TypeScript + Vite
+# Telecastt Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The web application for Telecastt — built with React, TypeScript, and Vite.
 
-Currently, two official plugins are available:
+## Architecture
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Host Command Center (`CommandCenter.tsx`)**: Controls room signaling, stream configuration (bitrate/fps/resolution), Virtual Display Driver installation, and Spatial Layout management.
+- **Client Video Surface (`VideoSurface.tsx`)**: High-performance WebRTC video player with autoplay policy handling and tap-to-stream overlay.
+- **Input Capture (`useInputCapture.ts`)**: Serializes touch, mouse, keyboard, and scroll events for real-time transmission over WebRTC data channels.
+- **Native Touch Injection**: Translates touch contacts into Win32 native touch injection payloads.
 
-## React Compiler
+## Scripts
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm run dev      # Start Vite development server
+npm run build    # Build production bundle to dist/
+npm run preview  # Preview production build
 ```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
