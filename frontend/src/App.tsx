@@ -57,9 +57,25 @@ function App() {
     }
   };
 
-  const handleJoinClient = () => {
-    if (roomIdInput.trim().length === 6) {
-      setActiveRoomId(roomIdInput.trim().toUpperCase());
+  const handleJoinClient = async () => {
+    const code = roomIdInput.trim().toUpperCase();
+    if (code.length !== 6) return;
+
+    try {
+      const res = await fetch(`http://${window.location.hostname}:3001/api/validate-room/${code}`);
+      const data = await res.json();
+      
+      if (!data.valid) {
+        alert(data.message || 'Invalid or expired room code. Please try again.');
+        return;
+      }
+
+      setActiveRoomId(code);
+      setMode('client');
+    } catch (e) {
+      console.warn("Could not validate room code with server", e);
+      // Fallback: attempt join anyway
+      setActiveRoomId(code);
       setMode('client');
     }
   };

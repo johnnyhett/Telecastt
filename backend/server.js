@@ -5,19 +5,40 @@ const crypto = require('crypto');
 const cors = require('cors');
 const os = require('os');
 
+const RateLimiter = require('./lib/rate-limiter');
+const RateLimiterInstance = new RateLimiter(20, 50); // 20 req/sec, capacity 50
+
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Basic Rate Limiter Middleware
+app.use((req, res, next) => {
+  if (!RateLimiterInstance.consume(1)) {
+    return res.status(429).json({ error: 'Too many requests. Please slow down.' });
+  }
+  next();
+});
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Map: roomId -> Set of WebSocket clients
+/**
+ * Room Object Structure:
+ * {
+ *   id: string,
+ *   createdAt: number,
+ *   expiresAt: number,
+ *   status: 'waiting' | 'connected' | 'closed',
+ *   clients: Set<WebSocket>,
+ *   hostToken: string
+ * }
+ */
 const rooms = new Map();
+const ROOM_TTL_MS = 30 * 60 * 1000; // 30 minute room TTL
 
-// Generate a secure 6-character room code
 function generateRoomCode() {
-  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No ambiguous chars
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Ambiguity-free charset
   let code = '';
   const randomValues = new Uint8Array(6);
   crypto.webcrypto.getRandomValues(randomValues);
@@ -27,6 +48,11 @@ function generateRoomCode() {
   return code;
 }
 
+function generateSecureToken() {
+  return crypto.randomBytes(16).toString('hex');
+}
+
+// Network Interfaces API
 app.get('/api/network-info', (req, res) => {
   const interfaces = os.networkInterfaces();
   let localIp = 'localhost';
@@ -45,11 +71,7 @@ app.get('/api/network-info', (req, res) => {
           type = 'ethernet';
         }
 
-        allIps.push({
-          interfaceName: name,
-          address: iface.address,
-          type
-        });
+        allIps.push({ interfaceName: name, address: iface.address, type });
 
         if (localIp === 'localhost') {
           localIp = iface.address;
@@ -62,10 +84,45 @@ app.get('/api/network-info', (req, res) => {
   res.json({ localIp, allIps, isBluetoothActive });
 });
 
+// Official Room Creation Endpoint
 app.get('/api/create-room', (req, res) => {
   const roomId = generateRoomCode();
-  rooms.set(roomId, new Set());
-  res.json({ roomId });
+  const hostToken = generateSecureToken();
+  const now = Date.now();
+
+  const room = {
+    id: roomId,
+    createdAt: now,
+    expiresAt: now + ROOM_TTL_MS,
+    status: 'waiting',
+    clients: new Set(),
+    hostToken
+  };
+
+  rooms.set(roomId, room);
+  res.json({ roomId, hostToken, expiresAt: room.expiresAt });
+});
+
+// Room Validation Endpoint
+app.get('/api/validate-room/:roomId', (req, res) => {
+  const { roomId } = req.params;
+  const upperCode = (roomId || '').toUpperCase();
+  const room = rooms.get(upperCode);
+
+  if (!room) {
+    return res.status(444).json({ valid: false, message: 'Room code does not exist.' });
+  }
+
+  if (Date.now() > room.expiresAt) {
+    rooms.delete(upperCode);
+    return res.status(410).json({ valid: false, message: 'Room code has expired.' });
+  }
+
+  if (room.clients.size >= 2) {
+    return res.status(409).json({ valid: false, message: 'Room is already full.' });
+  }
+
+  res.json({ valid: true, status: room.status, clientCount: room.clients.size });
 });
 
 // --- Virtual Display Driver (VDD) Control APIs ---
@@ -114,11 +171,12 @@ app.post('/api/bluetooth/disable', async (req, res) => {
   res.json(result);
 });
 
-wss.on('connection', (ws, req) => {
+// WebSocket Signaling Server
+wss.on('connection', (ws) => {
   ws.isAlive = true;
   ws.on('error', console.error);
   ws.on('pong', () => { ws.isAlive = true; });
-  let currentRoom = null;
+  let currentRoomId = null;
 
   ws.on('message', (message) => {
     try {
@@ -126,29 +184,47 @@ wss.on('connection', (ws, req) => {
 
       if (data.type === 'join') {
         const { roomId } = data;
-        if (!rooms.has(roomId)) {
-          rooms.set(roomId, new Set());
-        }
-        const room = rooms.get(roomId);
-        if (room.size >= 2) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Room is full' }));
+        const upperRoomId = (roomId || '').toUpperCase();
+        
+        // Strict Validation: Room MUST be officially created via API
+        if (!rooms.has(upperRoomId)) {
+          ws.send(JSON.stringify({ 
+            type: 'error', 
+            message: 'Room code does not exist. Please check the code or initialize a new host session.' 
+          }));
           return;
         }
-        room.add(ws);
-        currentRoom = roomId;
+
+        const room = rooms.get(upperRoomId);
+
+        if (Date.now() > room.expiresAt) {
+          rooms.delete(upperRoomId);
+          ws.send(JSON.stringify({ type: 'error', message: 'Room session has expired.' }));
+          return;
+        }
+
+        if (room.clients.size >= 2) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Room capacity reached (max 2 peers).' }));
+          return;
+        }
+
+        room.clients.add(ws);
+        currentRoomId = upperRoomId;
         
-        // If there are 2 people, notify them they can connect
-        if (room.size === 2) {
-          room.forEach(client => {
-            client.send(JSON.stringify({ type: 'ready' }));
+        // Update room status
+        if (room.clients.size === 2) {
+          room.status = 'connected';
+          room.clients.forEach(client => {
+            if (client.readyState === ws.OPEN) {
+              client.send(JSON.stringify({ type: 'ready', status: 'connected' }));
+            }
           });
         }
       } 
       else if (['offer', 'answer', 'ice-candidate'].includes(data.type)) {
-        // Forward signaling messages to the other peer in the room
-        if (currentRoom && rooms.has(currentRoom)) {
-          const room = rooms.get(currentRoom);
-          room.forEach(client => {
+        if (currentRoomId && rooms.has(currentRoomId)) {
+          const room = rooms.get(currentRoomId);
+          room.clients.forEach(client => {
             if (client !== ws && client.readyState === ws.OPEN) {
               client.send(JSON.stringify(data));
             }
@@ -156,27 +232,41 @@ wss.on('connection', (ws, req) => {
         }
       }
     } catch (e) {
-      console.error('Invalid message received', e);
+      console.error('Invalid message format received', e);
     }
   });
 
   ws.on('close', () => {
-    if (currentRoom && rooms.has(currentRoom)) {
-      const room = rooms.get(currentRoom);
-      room.delete(ws);
-      if (room.size === 0) {
-        rooms.delete(currentRoom);
+    if (currentRoomId && rooms.has(currentRoomId)) {
+      const room = rooms.get(currentRoomId);
+      room.clients.delete(ws);
+      
+      if (room.clients.size === 0) {
+        rooms.delete(currentRoomId);
       } else {
-        // Notify remaining peer that the other disconnected
-        room.forEach(client => {
-          client.send(JSON.stringify({ type: 'peer-disconnected' }));
+        room.status = 'waiting';
+        room.clients.forEach(client => {
+          if (client.readyState === ws.OPEN) {
+            client.send(JSON.stringify({ type: 'peer-disconnected' }));
+          }
         });
       }
     }
   });
 });
 
-const interval = setInterval(() => {
+// Periodic Sweeper: Keep-alive ping & Expired Room Cleanup
+const pingInterval = setInterval(() => {
+  const now = Date.now();
+  
+  // Clean expired rooms
+  for (const [roomId, room] of rooms.entries()) {
+    if (now > room.expiresAt || (room.clients.size === 0 && now - room.createdAt > 5 * 60 * 1000)) {
+      rooms.delete(roomId);
+    }
+  }
+
+  // Ping clients
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) return ws.terminate();
     ws.isAlive = false;
@@ -185,7 +275,7 @@ const interval = setInterval(() => {
 }, 30000);
 
 wss.on('close', () => {
-  clearInterval(interval);
+  clearInterval(pingInterval);
 });
 
 const PORT = process.env.PORT || 3001;
