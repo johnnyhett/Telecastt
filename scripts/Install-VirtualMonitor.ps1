@@ -46,9 +46,11 @@ try {
             pnputil /add-driver $InfPath /install
         }
         
-        # Trigger Windows Extended Display mode via built-in displayswitch
+        # Trigger Windows Extended Display mode via built-in displayswitch.
+        # /extend = extend desktop (true second monitor), not /external
+        # (which would project to the secondary display only).
         try {
-            Start-Process "displayswitch.exe" -ArgumentList "/external" -NoNewWindow
+            Start-Process "displayswitch.exe" -ArgumentList "/extend" -NoNewWindow
         } catch {}
 
         @{ success = $true; message = "Virtual Display Driver environment initialized and Extended Display Mode activated." } | ConvertTo-Json -Compress

@@ -7,46 +7,39 @@ interface Props {
 
 interface State {
   hasError: boolean;
-  error: Error | null;
+  message: string | null;
 }
 
-class ErrorBoundary extends Component<Props, State> {
-  public state: State = {
-    hasError: false,
-    error: null
-  };
+export default class ErrorBoundary extends Component<Props, State> {
+  state: State = { hasError: false, message: null };
 
-  public static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, message: error.message };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Uncaught error in React Error Boundary:', error, errorInfo);
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Unhandled UI error:', error, info);
   }
 
-  public render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#050505', color: 'white', padding: '2rem', textAlign: 'center', fontFamily: 'Inter, sans-serif' }}>
-          <h1 style={{ fontFamily: 'Outfit, sans-serif', color: '#ff4d4f', fontSize: '3rem', marginBottom: '1rem' }}>SYSTEM FAULT</h1>
-          <p style={{ opacity: 0.7, maxWidth: '600px', lineHeight: '1.6' }}>
-            The Telecastt engine encountered a fatal UI crash. This has been logged and contained to prevent the browser from freezing.
+  render() {
+    if (!this.state.hasError) return this.props.children;
+    return (
+      <div className="screen center">
+        <div className="card fault">
+          <h1 className="fault-title">Something broke</h1>
+          <p className="fault-desc">
+            The interface hit an unexpected error and was contained so the page stays responsive.
           </p>
-          <div style={{ background: 'rgba(255,0,0,0.1)', padding: '1rem', borderRadius: '8px', marginTop: '2rem', fontFamily: 'monospace', color: '#ff4d4f' }}>
-            {this.state.error?.message || 'Unknown render exception'}
-          </div>
-          <button 
-            onClick={() => window.location.href = window.location.pathname}
-            style={{ marginTop: '2rem', background: '#ff4d4f', color: 'white', border: 'none', padding: '12px 24px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
+          <pre className="fault-message">{this.state.message || 'Unknown render exception'}</pre>
+          <button
+            className="btn btn-primary"
+            onClick={() => window.location.reload()}
+            type="button"
           >
-            Reboot Engine
+            Reload
           </button>
         </div>
-      );
-    }
-
-    return this.props.children;
+      </div>
+    );
   }
 }
-
-export default ErrorBoundary;

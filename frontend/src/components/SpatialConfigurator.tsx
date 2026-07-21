@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 
-export interface Device {
+export interface DisplayNode {
   id: string;
   name: string;
   width: number;
@@ -10,112 +11,78 @@ export interface Device {
 }
 
 interface SpatialConfiguratorProps {
-  devices: Device[];
-  onLayoutChange: (layout: Array<{ id: string; position: { x: number; y: number } }>) => void;
+  devices: DisplayNode[];
+  onLayoutChange?: (layout: Array<{ id: string; position: { x: number; y: number } }>) => void;
 }
 
-const SpatialConfigurator: React.FC<SpatialConfiguratorProps> = ({ devices, onLayoutChange }) => {
+const BOUNDS = { minX: 8, maxX: 320, minY: 8, maxY: 150 };
+
+/**
+ * Drag-to-arrange 2D layout of the host + secondary displays. Self-contained
+ * styling; the primary display is fixed while secondaries can be positioned.
+ */
+export default function SpatialConfigurator({ devices, onLayoutChange }: SpatialConfiguratorProps) {
+  const [nodes, setNodes] = useState<DisplayNode[]>(devices);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [localDevices, setLocalDevices] = useState<Device[]>(devices);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setLocalDevices(devices);
-  }, [devices]);
+  useEffect(() => { setNodes(devices); }, [devices]);
 
-  const handlePointerDown = (e: React.PointerEvent, id: string, isPrimary?: boolean) => {
-    if (isPrimary) return; // Primary monitor is fixed
+  const onPointerDown = (e: ReactPointerEvent, node: DisplayNode) => {
+    if (node.isPrimary) return;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    setActiveId(id);
+    setActiveId(node.id);
   };
 
-  const handlePointerMove = (e: React.PointerEvent, id: string) => {
+  const onPointerMove = (e: ReactPointerEvent, id: string) => {
     if (activeId !== id) return;
-    
-    setLocalDevices((prev) => 
-      prev.map((d) => 
-        d.id === id 
-          ? { 
-              ...d, 
-              position: { 
-                x: Math.max(10, Math.min(380, d.position.x + e.movementX)), 
-                y: Math.max(10, Math.min(180, d.position.y + e.movementY)) 
-              } 
-            } 
-          : d
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.id === id
+          ? {
+              ...n,
+              position: {
+                x: Math.max(BOUNDS.minX, Math.min(BOUNDS.maxX, n.position.x + e.movementX)),
+                y: Math.max(BOUNDS.minY, Math.min(BOUNDS.maxY, n.position.y + e.movementY)),
+              },
+            }
+          : n
       )
     );
   };
 
-  const handlePointerUp = (e: React.PointerEvent, id: string) => {
-    if (activeId === id) {
-      setActiveId(null);
-      try {
-        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch { /* ignore */ }
-      onLayoutChange(localDevices.map(d => ({ id: d.id, position: d.position })));
-    }
+  const onPointerUp = (e: ReactPointerEvent, id: string) => {
+    if (activeId !== id) return;
+    setActiveId(null);
+    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    onLayoutChange?.(nodes.map((n) => ({ id: n.id, position: n.position })));
   };
 
   return (
-    <div className="cc-dropdown-wrapper" style={{ padding: '1rem' }}>
-      <label className="cc-dropdown-label" style={{ marginBottom: '0.75rem' }}>
-        Spatial Layout Manager (Drag to Arrange)
-      </label>
-      <div 
-        ref={containerRef}
-        style={{
-          width: '100%', 
-          height: '220px', 
-          position: 'relative',
-          overflow: 'hidden',
-          backgroundColor: 'rgba(2, 4, 10, 0.85)',
-          borderRadius: '14px',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          backgroundImage: 'radial-gradient(rgba(56, 189, 248, 0.15) 1px, transparent 1px)',
-          backgroundSize: '16px 16px'
-        }}
-      >
-        {localDevices.map(device => (
+    <div className="spatial">
+      <span className="field-label">Spatial layout (drag to arrange)</span>
+      <div className="spatial-canvas" ref={containerRef}>
+        {nodes.map((node) => (
           <div
-            key={device.id}
-            onPointerDown={(e) => handlePointerDown(e, device.id, device.isPrimary)}
-            onPointerMove={(e) => handlePointerMove(e, device.id)}
-            onPointerUp={(e) => handlePointerUp(e, device.id)}
+            key={node.id}
+            className={`spatial-node ${node.isPrimary ? 'is-primary' : ''} ${activeId === node.id ? 'is-active' : ''}`}
             style={{
-              position: 'absolute',
-              left: `${device.position.x}px`,
-              top: `${device.position.y}px`,
-              width: `${Math.max(110, device.width / 16)}px`,
-              height: `${Math.max(70, device.height / 16)}px`,
-              border: device.isPrimary 
-                ? '2px solid rgba(255, 255, 255, 0.25)' 
-                : '2px solid var(--cyan)',
-              backgroundColor: device.isPrimary 
-                ? 'rgba(255, 255, 255, 0.05)' 
-                : 'rgba(56, 189, 248, 0.18)',
-              cursor: device.isPrimary ? 'default' : activeId === device.id ? 'grabbing' : 'grab',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              borderRadius: '10px',
-              userSelect: 'none',
-              touchAction: 'none',
-              boxShadow: device.isPrimary ? 'none' : '0 0 20px rgba(56, 189, 248, 0.3)',
-              transition: activeId === device.id ? 'none' : 'all 0.2s ease'
+              left: `${node.position.x}px`,
+              top: `${node.position.y}px`,
+              width: `${Math.max(96, node.width / 18)}px`,
+              height: `${Math.max(60, node.height / 18)}px`,
             }}
+            onPointerDown={(e) => onPointerDown(e, node)}
+            onPointerMove={(e) => onPointerMove(e, node.id)}
+            onPointerUp={(e) => onPointerUp(e, node.id)}
           >
-            <div style={{ fontWeight: 700, fontSize: '0.8rem', letterSpacing: '0.5px' }}>{device.name}</div>
-            <div style={{ fontSize: '0.68rem', color: 'var(--foreground-muted)', marginTop: '2px' }}>
-              {device.isPrimary ? 'Primary Host' : `${device.width}x${device.height}`}
-            </div>
+            <span className="spatial-node-name">{node.name}</span>
+            <span className="spatial-node-meta">
+              {node.isPrimary ? 'Primary' : `${node.width}×${node.height}`}
+            </span>
           </div>
         ))}
       </div>
     </div>
   );
-};
-
-export default SpatialConfigurator;
+}

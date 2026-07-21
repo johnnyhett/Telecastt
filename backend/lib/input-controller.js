@@ -309,6 +309,16 @@ function ensureProcess() {
     }
   });
 
+  // Without this handler a failed spawn (e.g. PowerShell missing on a
+  // non-Windows host, or ENOENT) emits an unhandled 'error' event that would
+  // crash the entire server process. Handle it and degrade gracefully.
+  psProcess.on('error', (err) => {
+    console.error('[InputController] Failed to spawn injector process:', err.message);
+    psProcess = null;
+    isReady = false;
+    commandBuffer = [];
+  });
+
   psProcess.on('exit', (code) => {
     console.log(`[InputController] Process exited with code ${code}`);
     psProcess = null;
@@ -316,7 +326,47 @@ function ensureProcess() {
   });
 }
 
+const ALLOWED_ACTIONS = new Set([
+  'move', 'mousedown', 'mouseup', 'click', 'rightclick', 'touch', 'wheel', 'keydown', 'keyup'
+]);
+
+// Coerce and bound an untrusted remote payload before it is handed to the
+// native injector. Anything malformed is rejected rather than forwarded.
+function sanitize(data) {
+  if (!data || typeof data !== 'object') return null;
+  const action = ALLOWED_ACTIONS.has(data.action) ? data.action : 'move';
+
+  const clamp01 = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0;
+  };
+  const int = (v, fallback, min, max) => {
+    const n = parseInt(v, 10);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  };
+
+  const key = typeof data.key === 'string' ? data.key.slice(0, 32) : '';
+
+  return {
+    action,
+    nx: clamp01(data.normalizedX !== undefined ? data.normalizedX : data.nx),
+    ny: clamp01(data.normalizedY !== undefined ? data.normalizedY : data.ny),
+    button: int(data.button, 0, 0, 2),
+    deltaY: int(data.deltaY, 0, -10000, 10000),
+    key,
+    phase: data.phase === 'up' ? 'up' : data.phase === 'move' ? 'move' : 'down',
+    touchId: int(data.touchId, 1, 0, 4294967295),
+    monitor: int(data.monitor, -1, -1, 64)
+  };
+}
+
 function injectInput(data) {
+  const clean = sanitize(data);
+  if (!clean) {
+    return { success: false, error: 'Invalid input payload' };
+  }
+
   ensureProcess();
 
   if (!psProcess || psProcess.killed) {
@@ -324,17 +374,7 @@ function injectInput(data) {
   }
 
   try {
-    const cmd = JSON.stringify({
-      action: data.action || 'move',
-      nx: data.normalizedX || data.nx || 0,
-      ny: data.normalizedY || data.ny || 0,
-      button: data.button || 0,
-      deltaY: data.deltaY || 0,
-      key: data.key || '',
-      phase: data.phase || 'down',
-      touchId: data.touchId !== undefined ? data.touchId : 1,
-      monitor: data.monitor !== undefined ? data.monitor : -1
-    });
+    const cmd = JSON.stringify(clean);
 
     if (!isReady) {
       if (commandBuffer.length < 100) {
