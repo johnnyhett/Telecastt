@@ -1,428 +1,166 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
 import { useWebRTC } from './hooks/useWebRTC';
-import { useDisplayMedia } from './hooks/useDisplayMedia';
-import { useWakeLock } from './hooks/useWakeLock';
-import { useDataChannels } from './hooks/useDataChannels';
-import { useInputCapture } from './hooks/useInputCapture';
+import { useDisplayCapture } from './hooks/useDisplayCapture';
+import { usePointerCapture } from './hooks/usePointerCapture';
+import { useHostInputRelay } from './hooks/useHostInputRelay';
 import { useClipboardSync } from './hooks/useClipboardSync';
 import { useBatteryAware } from './hooks/useBatteryAware';
-import { useAdaptiveQuality } from './hooks/useAdaptiveQuality';
+import { useWakeLock } from './hooks/useWakeLock';
 import { usePictureInPicture } from './hooks/usePictureInPicture';
-import type { InputEventData } from './hooks/useInputCapture';
+import { useFullscreen } from './hooks/useFullscreen';
 
-import VideoSurface from './components/VideoSurface';
-import TelemetryOverlay from './components/TelemetryOverlay';
-import MacDock from './components/MacDock';
-import CommandCenter from './components/CommandCenter';
+import { api } from './lib/api';
+import { ROOM_CODE_PATTERN } from './lib/env';
+import type { AppMode, InputMessage, StreamSettings } from './lib/types';
 
-import './styles/tokens.css';
-import './styles/glass.css';
-import './styles/glass-extensions.css';
+import LandingView from './components/LandingView';
+import HostView from './components/HostView';
+import ClientView from './components/ClientView';
 
-function App() {
-  const [mode, setMode] = useState<'selection' | 'host' | 'client'>('selection');
-  const [roomIdInput, setRoomIdInput] = useState('');
-  const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [localIp, setLocalIp] = useState<string>('localhost');
+export default function App() {
+  const [mode, setMode] = useState<AppMode>('landing');
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [localIp, setLocalIp] = useState('localhost');
+  const [busy, setBusy] = useState(false);
+  const [uiError, setUiError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<StreamSettings>({ fps: 60, bitrateMbps: 50, resolution: '4K' });
 
-  const [streamSettings, setStreamSettings] = useState({ fps: '60', bitrate: '50', resolution: '4K' });
+  const isHost = mode === 'host';
 
-  const { startCapture, stopCapture, localStream } = useDisplayMedia();
-  const { connectionState, isReady, remoteStream, stats, peerConnection, signalingSocket } = useWebRTC(activeRoomId, mode === 'host', localStream, streamSettings);
+  const { localStream, startCapture, stopCapture } = useDisplayCapture();
+  const { connectionState, isReady, error, remoteStream, stats, channels, relayInput } = useWebRTC(
+    roomId,
+    isHost,
+    localStream,
+    isHost ? settings : null
+  );
 
-  // Data Channels setup
-  const channels = useDataChannels(peerConnection, mode === 'host');
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Video container ref for client input capture
-  const videoContainerRef = useRef<HTMLDivElement | null>(null);
+  const clientLive = mode === 'client' && connectionState === 'connected';
 
-  // Auto wake lock during active streaming on client
-  useWakeLock(mode === 'client' && connectionState === 'connected');
-
-  // Battery Awareness: degrade streaming parameters on low battery
+  // Degrade stream on low client battery.
   const battery = useBatteryAware(0.15);
   useEffect(() => {
     if (battery.shouldDegrade) {
-      setStreamSettings(prev => ({ ...prev, fps: '30', bitrate: '10' }));
+      setSettings((s) => ({ ...s, fps: 30, bitrateMbps: 10 }));
     }
   }, [battery.shouldDegrade]);
 
-  // Adaptive Quality monitor
-  useAdaptiveQuality(peerConnection);
+  useWakeLock(clientLive);
 
-  // ---------- CLIENT SIDE: Touch/Mouse capture → data channel ----------
-  // Throttle mouse moves to max ~60 events/sec to avoid flooding
-  const lastSentTime = useRef(0);
-
-  const handleClientInput = useCallback((eventData: InputEventData) => {
-    if (!channels.critical || channels.critical.readyState !== 'open') return;
-
-    // Throttle 'move' and 'drag' events to ~16ms intervals (60fps)
-    if (eventData.type === 'mouse' && (eventData.data as any).state === 'move') {
-      const now = performance.now();
-      if (now - lastSentTime.current < 16) return;
-      lastSentTime.current = now;
-    }
-    if (eventData.type === 'touch' && (eventData.data as any).gesture === 'drag') {
-      const now = performance.now();
-      if (now - lastSentTime.current < 16) return;
-      lastSentTime.current = now;
-    }
-
-    channels.critical.send(JSON.stringify(eventData));
-  }, [channels.critical]);
-
-  useInputCapture(
-    videoContainerRef,
-    mode === 'client' && connectionState === 'connected',
-    handleClientInput
+  const sendInput = useCallback(
+    (msg: InputMessage) => {
+      const ch = channels.control;
+      if (ch && ch.readyState === 'open') ch.send(JSON.stringify(msg));
+    },
+    [channels.control]
   );
 
-  // ---------- HOST SIDE: Receive data channel input → inject via WebSocket ----------
+  usePointerCapture(containerRef, clientLive, sendInput);
+  useHostInputRelay(channels.control, relayInput, isHost);
+  useClipboardSync(channels.clipboard, mode !== 'landing');
+
+  const { togglePiP, isSupported: pipSupported } = usePictureInPicture(videoRef);
+  const { isFullscreen, toggle: toggleFullscreen } = useFullscreen();
+
+  // Auto-join from a scanned QR link (?room=CODE).
   useEffect(() => {
-    if (mode !== 'host' || !channels.critical) return;
-
-    const handleMessage = (e: MessageEvent) => {
-      try {
-        const eventData = JSON.parse(e.data);
-        let payload: Record<string, unknown> | null = null;
-
-        if (eventData.type === 'mouse') {
-          const d = eventData.data;
-          payload = {
-            action: d.state === 'move' ? 'move' : d.state === 'down' ? 'mousedown' : d.state === 'up' ? 'mouseup' : 'click',
-            normalizedX: d.normalizedX,
-            normalizedY: d.normalizedY,
-            button: d.button
-          };
-        } else if (eventData.type === 'touch') {
-          const d = eventData.data;
-          if (d.touches && d.touches.length > 0) {
-            const t = d.touches[0];
-            payload = {
-              action: 'touch',
-              phase: d.gesture === 'tap' ? 'down' : 'move',
-              normalizedX: t.normalizedX,
-              normalizedY: t.normalizedY,
-              touchId: t.identifier || 1
-            };
-          } else if (d.gesture === 'release') {
-            payload = {
-              action: 'touch',
-              phase: 'up',
-              normalizedX: 0,
-              normalizedY: 0,
-              touchId: 1
-            };
-          }
-        } else if (eventData.type === 'wheel') {
-          payload = { action: 'wheel', deltaY: eventData.data.deltaY };
-        } else if (eventData.type === 'key') {
-          const d = eventData.data;
-          payload = {
-            action: d.down ? 'keydown' : 'keyup',
-            key: d.key || d.code || ''
-          };
-        }
-
-        // Send via existing WebSocket (NOT via HTTP fetch — that was the bug)
-        if (payload && signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
-          signalingSocket.send(JSON.stringify({
-            type: 'input-inject',
-            payload
-          }));
-        }
-      } catch {
-        // Silently discard malformed input
-      }
-    };
-
-    channels.critical.addEventListener('message', handleMessage);
-    return () => {
-      channels.critical?.removeEventListener('message', handleMessage);
-    };
-  }, [mode, channels.critical, signalingSocket]);
-
-  // Clipboard sync between host and client via the low-priority data channel
-  useClipboardSync(channels.low || null, mode === 'client' || mode === 'host');
-
-  // Auto-join via Query Parameter (e.g., from QR Code scan)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const roomParam = params.get('room');
-    if (roomParam && roomParam.length === 6) {
-      setRoomIdInput(roomParam.toUpperCase());
-      setActiveRoomId(roomParam.toUpperCase());
+    const raw = new URLSearchParams(window.location.search).get('room');
+    if (raw && ROOM_CODE_PATTERN.test(raw.toUpperCase())) {
+      setRoomId(raw.toUpperCase());
       setMode('client');
     }
   }, []);
 
-  const handleStartHosting = async () => {
+  // Keep the live surface focused so keyboard input is captured.
+  useEffect(() => {
+    if (clientLive) containerRef.current?.focus();
+  }, [clientLive]);
+
+  const handleHost = useCallback(async () => {
+    setBusy(true);
+    setUiError(null);
     try {
-      await startCapture();
-      
-      const ipRes = await fetch(`http://${window.location.hostname}:3001/api/network-info`);
-      const ipData = await ipRes.json();
-      
-      const roomRes = await fetch(`http://${window.location.hostname}:3001/api/create-room`);
-      const data = await roomRes.json();
-      
-      setLocalIp(ipData.localIp);
-      setActiveRoomId(data.roomId);
+      const stream = await startCapture();
+      if (!stream) return; // user dismissed the picker
+      const [net, room] = await Promise.all([
+        api.networkInfo().catch(() => null),
+        api.createRoom(),
+      ]);
+      setLocalIp(net?.localIp || window.location.hostname);
+      setRoomId(room.roomId);
       setMode('host');
     } catch (e) {
-      console.error("Could not fetch resources or access media", e);
+      setUiError(e instanceof Error ? e.message : 'Could not start host session.');
       stopCapture();
+    } finally {
+      setBusy(false);
     }
-  };
+  }, [startCapture, stopCapture]);
 
-  const handleJoinClient = async () => {
-    const code = roomIdInput.trim().toUpperCase();
-    if (code.length !== 6) return;
-
+  const handleJoin = useCallback(async (raw: string) => {
+    const code = raw.trim().toUpperCase();
+    if (!ROOM_CODE_PATTERN.test(code)) {
+      setUiError('Enter a valid 6-character room code.');
+      return;
+    }
+    setBusy(true);
+    setUiError(null);
     try {
-      const res = await fetch(`http://${window.location.hostname}:3001/api/validate-room/${code}`);
-      const data = await res.json();
-      
-      if (!data.valid) {
-        alert(data.message || 'Invalid or expired room code. Please try again.');
-        return;
-      }
-
-      setActiveRoomId(code);
+      await api.validateRoom(code);
+      setRoomId(code);
       setMode('client');
     } catch (e) {
-      console.warn("Could not validate room code with server", e);
-      setActiveRoomId(code);
-      setMode('client');
+      setUiError(e instanceof Error ? e.message : 'Invalid or expired room code.');
+    } finally {
+      setBusy(false);
     }
-  };
-
-  const handleDisconnect = () => {
-    stopCapture();
-    setActiveRoomId(null);
-    setMode('selection');
-    window.location.href = window.location.pathname;
-  };
-
-  const toggleFullscreen = async () => {
-    try {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-        setIsFullscreen(true);
-      } else {
-        await document.exitFullscreen();
-        setIsFullscreen(false);
-      }
-    } catch {
-      // Silently handle — fullscreen requires user gesture context
-    }
-  };
-
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Picture-in-Picture Support
-  const videoElemRef = useRef<HTMLVideoElement | null>(null);
-  const { togglePiP, isSupported: isPiPSupported } = usePictureInPicture(videoElemRef);
+  const handleDisconnect = useCallback(() => {
+    stopCapture();
+    setRoomId(null);
+    setMode('landing');
+    setUiError(null);
+    if (window.location.search) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, [stopCapture]);
 
-  // ---------------------------------------------------------
-  // LIVE STREAM VIEW (CLIENT)
-  // ---------------------------------------------------------
-  if (connectionState === 'connected' && mode === 'client') {
+  if (mode === 'client') {
     return (
-      <div 
-        ref={(el) => {
-          videoContainerRef.current = el;
-          if (el) el.focus();
-        }}
-        className="app-container" 
-        style={{ width: '100vw', height: '100vh', background: 'black', position: 'relative', overflow: 'hidden', touchAction: 'none', outline: 'none' }}
-        tabIndex={0}
-      >
-        <VideoSurface stream={remoteStream} />
-        <TelemetryOverlay stats={stats} />
-        <MacDock 
-          onDisconnect={handleDisconnect} 
-          onFullscreen={toggleFullscreen} 
-          isFullscreen={isFullscreen} 
-          onTogglePiP={togglePiP}
-          isPiPSupported={isPiPSupported}
-        />
-      </div>
+      <ClientView
+        connectionState={connectionState}
+        error={error || uiError}
+        roomId={roomId}
+        remoteStream={remoteStream}
+        stats={stats}
+        containerRef={containerRef}
+        videoRef={videoRef}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={toggleFullscreen}
+        onTogglePiP={togglePiP}
+        pipSupported={pipSupported}
+        onDisconnect={handleDisconnect}
+      />
     );
   }
 
-  // ---------------------------------------------------------
-  // HOST COMMAND CENTER
-  // ---------------------------------------------------------
-  if (mode === 'host' && activeRoomId) {
+  if (mode === 'host' && roomId) {
     return (
-      <div className="app-container" style={{ width: '100vw', height: '100vh', overflowY: 'auto' }}>
-        <CommandCenter 
-          activeRoomId={activeRoomId} 
-          localIp={localIp}
-          isReady={isReady}
-          onDisconnect={handleDisconnect}
-          onSettingsChange={setStreamSettings}
-        />
-      </div>
+      <HostView
+        roomId={roomId}
+        localIp={localIp}
+        isReady={isReady}
+        connectionState={connectionState}
+        onSettingsChange={setSettings}
+        onDisconnect={handleDisconnect}
+      />
     );
   }
 
-  // ---------------------------------------------------------
-  // CLIENT CONNECTING STATE VIEW
-  // ---------------------------------------------------------
-  if (mode === 'client' && activeRoomId) {
-    return (
-      <div className="app-container fade-enter-active" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', width: '100vw' }}>
-        <div className="c-glass-card" style={{ maxWidth: 450, width: '90%', textAlign: 'center', padding: '3rem 2rem' }}>
-          <img src="/assets/logo.png" alt="Telecastt" style={{ width: 80, height: 80, marginBottom: '1.5rem', filter: 'drop-shadow(0 0 15px var(--accent-glow))' }} />
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.75rem', marginBottom: '0.5rem', color: '#ffffff' }}>
-            {connectionState === 'connecting' ? 'Establishing Handshake...' : connectionState === 'reconnecting' ? 'Reconnecting Session...' : 'Connecting to Host'}
-          </h2>
-          <p style={{ color: 'var(--foreground-muted)', fontSize: '0.9rem', marginBottom: '2rem' }}>
-            Session Code: <span className="mono" style={{ color: 'var(--cyan)', fontWeight: 700 }}>{activeRoomId}</span>
-          </p>
-
-          <div style={{ display: 'flex', justifyContent: 'center', margin: '2rem 0' }}>
-            <div className="cc-badge cc-badge-active" style={{ padding: '0.75rem 1.5rem', fontSize: '1rem' }}>
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#34d399', display: 'inline-block' }} />
-              {connectionState.toUpperCase()}
-            </div>
-          </div>
-
-          <button className="c-button c-button-secondary" onClick={handleDisconnect} style={{ marginTop: '1rem' }}>
-            Cancel Connection
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ---------------------------------------------------------
-  // SELECTION VIEW (HERO SELECTION MATRIX)
-  // ---------------------------------------------------------
-  return (
-    <div className="app-container fade-enter-active" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', width: '100vw', padding: '2rem' }}>
-      <div className="c-glass-card" style={{ maxWidth: 540, width: '100%', textAlign: 'center', position: 'relative' }}>
-        
-        {/* Glow Halo */}
-        <div style={{
-          position: 'absolute',
-          top: '-80px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: '260px',
-          height: '260px',
-          background: 'radial-gradient(circle, var(--cyan-glow) 0%, var(--accent-glow) 50%, transparent 80%)',
-          pointerEvents: 'none',
-          filter: 'blur(30px)'
-        }} />
-
-        {/* Floating Glowing Logo */}
-        <div style={{ position: 'relative', width: 96, height: 96, margin: '0 auto 1.75rem auto' }}>
-          <img 
-            src="/assets/logo.png" 
-            alt="Telecastt Logo" 
-            style={{ 
-              width: '100%', 
-              height: '100%', 
-              objectFit: 'contain',
-              mixBlendMode: 'screen',
-              filter: 'drop-shadow(0 0 25px rgba(56, 189, 248, 0.6))'
-            }} 
-          />
-        </div>
-        
-        <h1 style={{ 
-          fontFamily: 'var(--font-heading)', 
-          fontSize: '3.1rem', 
-          fontWeight: 900, 
-          letterSpacing: '-1px', 
-          color: '#ffffff', 
-          marginBottom: '0.75rem',
-          background: 'linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent'
-        }}>
-          Telecastt
-        </h1>
-        <p style={{ 
-          color: 'var(--foreground-muted)', 
-          fontSize: '1.05rem', 
-          marginBottom: '2rem', 
-          lineHeight: '1.65',
-          fontStyle: 'italic',
-          fontWeight: 300,
-          maxWidth: '440px',
-          margin: '0 auto 2rem auto'
-        }}>
-          “Screens unchained. Beyond ecosystems, beyond wires — turn any glass into your extended horizon.”
-        </p>
-
-        {/* Minimalist Poetic Accent Badge */}
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '2.5rem' }}>
-          <span style={{ 
-            display: 'inline-flex', 
-            alignItems: 'center', 
-            gap: '0.6rem', 
-            padding: '0.5rem 1.35rem', 
-            borderRadius: '30px', 
-            background: 'rgba(56, 189, 248, 0.08)', 
-            border: '1px solid rgba(56, 189, 248, 0.25)', 
-            color: 'var(--cyan)', 
-            fontSize: '0.78rem', 
-            fontWeight: 700, 
-            letterSpacing: '1.5px', 
-            textTransform: 'uppercase' 
-          }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--cyan)', display: 'inline-block', boxShadow: '0 0 10px var(--cyan)' }} />
-            UNBOUND CANVAS &bull; NATIVE TOUCH
-          </span>
-        </div>
-
-        {/* Action Controls */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          <button className="c-button" onClick={handleStartHosting}>
-            Initialize Host Matrix
-          </button>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', margin: '0.5rem 0' }}>
-            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-            <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1.5px', color: 'var(--foreground-dim)', fontWeight: 700 }}>or join as extended display</span>
-            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-          </div>
-
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <input 
-              type="text" 
-              className="c-input" 
-              placeholder="ROOM CODE" 
-              maxLength={6}
-              value={roomIdInput}
-              onChange={(e) => setRoomIdInput(e.target.value.toUpperCase())}
-            />
-            <button 
-              className="c-button c-button-secondary" 
-              style={{ width: 'auto', padding: '0 1.75rem', flexShrink: 0 }}
-              disabled={roomIdInput.trim().length !== 6}
-              onClick={handleJoinClient}
-            >
-              Connect
-            </button>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  );
+  return <LandingView busy={busy} error={uiError} onHost={handleHost} onJoin={handleJoin} />;
 }
-
-export default App;

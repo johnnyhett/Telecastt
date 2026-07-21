@@ -48,9 +48,11 @@ switch ($Action) {
             Enable-PnpDevice -InstanceId $device.InstanceId -Confirm:$false -ErrorAction SilentlyContinue
         }
         
-        # Always trigger display switch to extend mode
+        # Always trigger display switch to EXTEND mode (true second monitor).
+        # NOTE: /extend = extend desktop, /external = second-screen-only,
+        # /clone = duplicate, /internal = primary-only.
         try {
-            Start-Process "displayswitch.exe" -ArgumentList "/external" -NoNewWindow
+            Start-Process "displayswitch.exe" -ArgumentList "/extend" -NoNewWindow
         } catch {}
 
         @{ success = $true; message = "Extended Display activated." } | ConvertTo-Json -Compress

@@ -1,0 +1,71 @@
+/* Self-contained by design: no external font CDN so the app loads fully on an
+   isolated LAN (and its offline service worker actually holds). The brand fonts
+   are still preferred when installed locally, then fall back to strong system
+   stacks. */
+
+:root {
+  /* Surfaces */
+  --bg-deep: #02040a;
+  --bg-elevated: #0b1120;
+  --surface: rgba(13, 20, 38, 0.72);
+  --surface-2: rgba(255, 255, 255, 0.04);
+  --surface-hover: rgba(255, 255, 255, 0.08);
+
+  /* Text */
+  --foreground: #f1f5f9;
+  --foreground-muted: #94a3b8;
+  --foreground-dim: #64748b;
+
+  /* Accents */
+  --accent: #6366f1;
+  --accent-glow: rgba(99, 102, 241, 0.35);
+  --cyan: #38bdf8;
+  --cyan-glow: rgba(56, 189, 248, 0.35);
+  --emerald: #34d399;
+  --rose: #fb7185;
+
+  /* Lines / effects */
+  --border: rgba(255, 255, 255, 0.09);
+  --border-bright: rgba(56, 189, 248, 0.35);
+  --blur: blur(24px) saturate(160%);
+  --shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 1px rgba(255, 255, 255, 0.08);
+
+  /* Radii */
+  --r-sm: 8px;
+  --r: 14px;
+  --r-lg: 22px;
+  --r-xl: 30px;
+
+  /* Type — brand fonts first, then self-contained system fallbacks */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: 'Outfit', 'Inter', system-ui, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', 'Cascadia Code', Menlo, Consolas, monospace;
+
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body {
+  background-color: var(--bg-deep);
+  background-image:
+    radial-gradient(ellipse 90% 60% at 50% -20%, rgba(99, 102, 241, 0.18), transparent),
+    radial-gradient(ellipse 70% 50% at 90% 100%, rgba(56, 189, 248, 0.12), transparent),
+    radial-gradient(circle 480px at 8% 85%, rgba(168, 85, 247, 0.1), transparent);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-heading);
+  margin: 0;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--cyan-glow); }

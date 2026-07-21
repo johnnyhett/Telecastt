@@ -4,12 +4,34 @@ const { WebSocketServer } = require('ws');
 const crypto = require('crypto');
 const cors = require('cors');
 const os = require('os');
+const { execFile } = require('child_process');
 
 const RateLimiter = require('./lib/rate-limiter');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// ---------------------------------------------------------------------------
+// Origin allow-list (defends the input-injection / device-control endpoints
+// against drive-by requests from arbitrary websites the host user may visit).
+// Only same-machine and private-LAN origins are trusted; everything else is
+// rejected. Requests without an Origin header (native apps, curl, same-origin
+// navigations) are allowed.
+// ---------------------------------------------------------------------------
+const TRUSTED_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|(?:10|127)\.[\d.]+|192\.168\.[\d.]+|172\.(?:1[6-9]|2\d|3[01])\.[\d.]+)(?::\d+)?$/;
+
+function isTrustedOrigin(origin) {
+  if (!origin) return true; // non-browser or same-origin request
+  return TRUSTED_ORIGIN.test(origin);
+}
+
+app.use(cors({
+  origin(origin, callback) {
+    // Never throw here — returning `false` simply omits CORS headers so the
+    // browser blocks the cross-site response/preflight.
+    callback(null, isTrustedOrigin(origin));
+  }
+}));
+app.use(express.json({ limit: '256kb' }));
 
 // Per-IP Rate Limiter Map
 const rateLimiters = new Map();
@@ -32,7 +54,7 @@ setInterval(() => {
       rateLimiters.delete(ip);
     }
   }
-}, RATE_LIMIT_CLEANUP_INTERVAL);
+}, RATE_LIMIT_CLEANUP_INTERVAL).unref();
 
 // Per-IP Rate Limiter Middleware
 app.use((req, res, next) => {
@@ -50,7 +72,13 @@ const asyncHandler = (fn) => (req, res, next) => {
 };
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({
+  server,
+  maxPayload: 256 * 1024,
+  // Reject cross-site WebSocket connections from untrusted origins so a
+  // malicious page cannot open a signaling socket and drive input injection.
+  verifyClient: (info) => isTrustedOrigin(info.origin)
+});
 
 /**
  * Room Object Structure:
@@ -65,14 +93,15 @@ const wss = new WebSocketServer({ server });
  */
 const rooms = new Map();
 const ROOM_TTL_MS = 30 * 60 * 1000; // 30 minute room TTL
+const MAX_ROOMS = 500;              // Hard cap to bound memory / abuse
 
 function generateRoomCode() {
-  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Ambiguity-free charset
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Ambiguity-free charset (32 chars)
   let code = '';
   const randomValues = new Uint8Array(6);
   crypto.webcrypto.getRandomValues(randomValues);
   for (let i = 0; i < 6; i++) {
-    code += charset[randomValues[i] % charset.length];
+    code += charset[randomValues[i] % charset.length]; // 256 % 32 === 0 → no modulo bias
   }
   return code;
 }
@@ -97,7 +126,7 @@ app.get('/api/network-info', asyncHandler((req, res) => {
         let type = 'other';
 
         // Skip virtual adapters (VirtualBox, vEthernet, Hyper-V, etc.)
-        if (lowerName.includes('virtual') || lowerName.includes('vethernet') || 
+        if (lowerName.includes('virtual') || lowerName.includes('vethernet') ||
             lowerName.includes('vmware') || lowerName.includes('vbox')) {
           continue;
         }
@@ -128,6 +157,10 @@ app.get('/api/network-info', asyncHandler((req, res) => {
 
 // Official Room Creation Endpoint
 app.get('/api/create-room', asyncHandler((req, res) => {
+  if (rooms.size >= MAX_ROOMS) {
+    return res.status(503).json({ error: 'Server at capacity. Please try again shortly.' });
+  }
+
   const roomId = generateRoomCode();
   const hostToken = generateSecureToken();
   const now = Date.now();
@@ -145,7 +178,7 @@ app.get('/api/create-room', asyncHandler((req, res) => {
   res.json({ roomId, hostToken, expiresAt: room.expiresAt });
 }));
 
-// Room Validation Endpoint (use standard 404 instead of non-standard 444)
+// Room Validation Endpoint
 app.get('/api/validate-room/:roomId', asyncHandler((req, res) => {
   const { roomId } = req.params;
   const upperCode = (roomId || '').toUpperCase();
@@ -172,12 +205,6 @@ const iddController = require('./lib/idd-controller');
 const bluetoothController = require('./lib/bluetooth-controller');
 const inputController = require('./lib/input-controller');
 
-// --- Input Injection Control API (KVM Remote Control) ---
-app.post('/api/input/inject', asyncHandler(async (req, res) => {
-  const result = inputController.injectInput(req.body);
-  res.json(result);
-}));
-
 // --- Virtual Display Driver (VDD) Control APIs ---
 app.get('/api/vdd/status', asyncHandler(async (req, res) => {
   const result = await iddController.getStatus();
@@ -199,14 +226,34 @@ app.post('/api/vdd/disable', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
+// Windows displayswitch.exe topology flags. The client only sends a symbolic
+// `displayMode`; the flag is resolved server-side against this allow-list so
+// no client-controlled string ever reaches the process arguments.
+const DISPLAY_SWITCH_FLAGS = {
+  extend: '/extend',       // true second monitor (the "extend your display" path)
+  duplicate: '/clone',     // mirror the primary
+  secondonly: '/external', // project only to the secondary display
+  internal: '/internal'    // primary display only
+};
+
+function clampInt(value, fallback, min, max) {
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
 // VDD Configure — supports display mode switching (extend/duplicate/secondonly)
 app.post('/api/vdd/configure', asyncHandler(async (req, res) => {
-  const { width, height, refreshRate, displayMode, flag } = req.body || {};
-  
-  // If displayMode is specified, use Windows displayswitch.exe
-  if (displayMode && flag) {
-    const { exec } = require('child_process');
-    exec(`displayswitch.exe ${flag}`, (err) => {
+  const { width, height, refreshRate, displayMode } = req.body || {};
+
+  // If a displayMode is specified, switch topology via the built-in Windows
+  // utility. `execFile` (no shell) + an allow-listed flag prevents injection.
+  if (displayMode) {
+    const flag = DISPLAY_SWITCH_FLAGS[String(displayMode)];
+    if (!flag) {
+      return res.status(400).json({ success: false, error: 'Unsupported display mode.' });
+    }
+    execFile('displayswitch.exe', [flag], { windowsHide: true }, (err) => {
       if (err) {
         return res.json({ success: false, error: err.message });
       }
@@ -215,10 +262,12 @@ app.post('/api/vdd/configure', asyncHandler(async (req, res) => {
     return;
   }
 
+  // Otherwise persist a resolution profile. Dimensions are coerced to bounded
+  // integers before they are ever passed to the PowerShell layer.
   const result = await iddController.configureDisplay(
-    width || 1920, 
-    height || 1080, 
-    refreshRate || 60
+    clampInt(width, 1920, 640, 7680),
+    clampInt(height, 1080, 480, 4320),
+    clampInt(refreshRate, 60, 24, 240)
   );
   res.json(result);
 }));
@@ -253,18 +302,25 @@ wss.on('connection', (ws) => {
   let currentRoomId = null;
 
   ws.on('message', (message) => {
+    let data;
     try {
-      const data = JSON.parse(message);
+      data = JSON.parse(message);
+    } catch (e) {
+      console.error('Invalid message format received', e.message);
+      return;
+    }
+    if (!data || typeof data.type !== 'string') return;
 
+    try {
       if (data.type === 'join') {
         const { roomId } = data;
         const upperRoomId = (roomId || '').toUpperCase();
-        
+
         // Strict Validation: Room MUST be officially created via API
         if (!rooms.has(upperRoomId)) {
-          ws.send(JSON.stringify({ 
-            type: 'error', 
-            message: 'Room code does not exist. Please check the code or initialize a new host session.' 
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Room code does not exist. Please check the code or initialize a new host session.'
           }));
           return;
         }
@@ -284,37 +340,44 @@ wss.on('connection', (ws) => {
 
         room.clients.add(ws);
         currentRoomId = upperRoomId;
-        
+
         // Update room status
         if (room.clients.size === 2) {
           room.status = 'connected';
           room.clients.forEach(client => {
             try {
-              if (client.readyState === ws.OPEN) {
+              if (client.readyState === client.OPEN) {
                 client.send(JSON.stringify({ type: 'ready', status: 'connected' }));
               }
             } catch { /* guard against send errors */ }
           });
         }
-      } 
+      }
       else if (['offer', 'answer', 'ice-candidate'].includes(data.type)) {
         if (currentRoomId && rooms.has(currentRoomId)) {
           const room = rooms.get(currentRoomId);
+          // Only relay between members of the room this socket actually joined.
+          if (!room.clients.has(ws)) return;
           room.clients.forEach(client => {
             try {
-              if (client !== ws && client.readyState === ws.OPEN) {
+              if (client !== ws && client.readyState === client.OPEN) {
                 client.send(JSON.stringify(data));
               }
             } catch { /* guard against send errors */ }
           });
         }
       }
-      // Input injection via WebSocket (much faster than HTTP per-event)
+      // Input injection via WebSocket. Only accepted from a socket that has
+      // legitimately joined a valid, non-expired room — this is the auth gate
+      // that stops arbitrary sockets from driving the host's mouse/keyboard.
       else if (data.type === 'input-inject') {
+        if (!currentRoomId || !rooms.has(currentRoomId)) return;
+        const room = rooms.get(currentRoomId);
+        if (!room.clients.has(ws) || Date.now() > room.expiresAt) return;
         inputController.injectInput(data.payload);
       }
     } catch (e) {
-      console.error('Invalid message format received', e);
+      console.error('Error handling signaling message:', e.message);
     }
   });
 
@@ -322,14 +385,14 @@ wss.on('connection', (ws) => {
     if (currentRoomId && rooms.has(currentRoomId)) {
       const room = rooms.get(currentRoomId);
       room.clients.delete(ws);
-      
+
       if (room.clients.size === 0) {
         rooms.delete(currentRoomId);
       } else {
         room.status = 'waiting';
         room.clients.forEach(client => {
           try {
-            if (client.readyState === ws.OPEN) {
+            if (client.readyState === client.OPEN) {
               client.send(JSON.stringify({ type: 'peer-disconnected' }));
             }
           } catch { /* guard against send errors */ }
@@ -342,7 +405,7 @@ wss.on('connection', (ws) => {
 // Periodic Sweeper: Keep-alive ping & Expired Room Cleanup
 const pingInterval = setInterval(() => {
   const now = Date.now();
-  
+
   // Clean expired rooms
   for (const [roomId, room] of rooms.entries()) {
     if (now > room.expiresAt || (room.clients.size === 0 && now - room.createdAt > 5 * 60 * 1000)) {
@@ -357,6 +420,7 @@ const pingInterval = setInterval(() => {
     ws.ping();
   });
 }, 30000);
+pingInterval.unref();
 
 wss.on('close', () => {
   clearInterval(pingInterval);
@@ -364,7 +428,10 @@ wss.on('close', () => {
 });
 
 // Graceful shutdown — kill injector process to prevent orphans
+let shuttingDown = false;
 function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`[Server] Received ${signal}. Shutting down gracefully...`);
   inputController.killInjector();
   wss.close();
@@ -372,7 +439,7 @@ function gracefulShutdown(signal) {
     process.exit(0);
   });
   // Force exit after 3 seconds if graceful shutdown hangs
-  setTimeout(() => process.exit(1), 3000);
+  setTimeout(() => process.exit(1), 3000).unref();
 }
 
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
@@ -395,3 +462,5 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Signaling Server running on port ${PORT}`);
 });
+
+module.exports = { app, server };

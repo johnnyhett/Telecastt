@@ -65,11 +65,19 @@ async function disableDisplay() {
 }
 
 async function configureDisplay(width, height, refreshRate) {
+  // Coerce to bounded integers so nothing but digits ever reaches the shell
+  // command line (guards against injection regardless of the caller).
+  const toInt = (v, fallback, min, max) => {
+    const n = parseInt(v, 10);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  };
+
   return await runPowerShell('Configure-VirtualDisplay.ps1', [
     '-Action', 'Configure',
-    '-Width', width,
-    '-Height', height,
-    '-RefreshRate', refreshRate
+    '-Width', toInt(width, 1920, 640, 7680),
+    '-Height', toInt(height, 1080, 480, 4320),
+    '-RefreshRate', toInt(refreshRate, 60, 24, 240)
   ], false);
 }
 
