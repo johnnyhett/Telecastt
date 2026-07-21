@@ -47,6 +47,35 @@ app.get('/api/create-room', (req, res) => {
   res.json({ roomId });
 });
 
+// --- Virtual Display Driver (VDD) Control APIs ---
+const iddController = require('./lib/idd-controller');
+
+app.get('/api/vdd/status', async (req, res) => {
+  const result = await iddController.getStatus();
+  res.json(result);
+});
+
+app.post('/api/vdd/install', async (req, res) => {
+  const result = await iddController.installDriver();
+  res.json(result);
+});
+
+app.post('/api/vdd/enable', async (req, res) => {
+  const result = await iddController.enableDisplay();
+  res.json(result);
+});
+
+app.post('/api/vdd/disable', async (req, res) => {
+  const result = await iddController.disableDisplay();
+  res.json(result);
+});
+
+app.post('/api/vdd/configure', async (req, res) => {
+  const { width, height, refreshRate } = req.body || {};
+  const result = await iddController.configureDisplay(width || 1920, height || 1080, refreshRate || 60);
+  res.json(result);
+});
+
 wss.on('connection', (ws, req) => {
   ws.isAlive = true;
   ws.on('error', console.error);

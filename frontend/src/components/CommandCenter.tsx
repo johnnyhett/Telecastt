@@ -16,6 +16,61 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
   const [bitrate, setBitrate] = useState('50');
   const [res, setRes] = useState('4K');
 
+  // Virtual Display Driver (VDD) State
+  const [vddInstalled, setVddInstalled] = useState<boolean>(false);
+  const [vddEnabled, setVddEnabled] = useState<boolean>(false);
+  const [vddLoading, setVddLoading] = useState<boolean>(false);
+
+  const fetchVddStatus = async () => {
+    try {
+      const res = await fetch(`http://${window.location.hostname}:3001/api/vdd/status`);
+      const data = await res.json();
+      if (data.success && data.data) {
+        setVddInstalled(data.data.Installed || false);
+        setVddEnabled(data.data.Present || false);
+      }
+    } catch (e) {
+      console.warn("Could not query VDD status", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchVddStatus();
+  }, []);
+
+  const handleToggleVdd = async () => {
+    setVddLoading(true);
+    try {
+      const endpoint = vddEnabled ? 'disable' : 'enable';
+      const res = await fetch(`http://${window.location.hostname}:3001/api/vdd/${endpoint}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setVddEnabled(!vddEnabled);
+      }
+    } catch (e) {
+      console.error("VDD Toggle failed", e);
+    } finally {
+      setVddLoading(false);
+      fetchVddStatus();
+    }
+  };
+
+  const handleInstallVdd = async () => {
+    setVddLoading(true);
+    try {
+      const res = await fetch(`http://${window.location.hostname}:3001/api/vdd/install`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setVddInstalled(true);
+      }
+    } catch (e) {
+      console.error("VDD Install failed", e);
+    } finally {
+      setVddLoading(false);
+      fetchVddStatus();
+    }
+  };
+
   useEffect(() => {
     onSettingsChange({ fps, bitrate, resolution: res });
   }, [fps, bitrate, res, onSettingsChange]);
@@ -77,16 +132,39 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
           </div>
         </div>
 
-        {/* Center Column: Live Status & Topology */}
+        {/* Center Column: Live Status, Virtual Display & Topology */}
         <div className="cc-panel">
           <div className="cc-panel-header">
             <LayoutDashboard className="cc-icon" size={20} />
-            <h3 className="cc-panel-title">System Topology</h3>
+            <h3 className="cc-panel-title">System Topology & VDD</h3>
           </div>
 
           <p className="cc-topology-desc">
-            Define spatial awareness between node displays for seamless edge transitions.
+            Virtual Extended Display driver enables true secondary monitor mode rather than screen duplication.
           </p>
+
+          <div className="cc-dropdown-wrapper" style={{ background: vddEnabled ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.03)', borderColor: vddEnabled ? 'var(--color-accent-cyan)' : 'rgba(255, 255, 255, 0.1)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+              <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'white' }}>Virtual Display Driver</span>
+              <span className={`cc-status-dot ${vddEnabled ? 'connected' : 'disconnected'}`} />
+            </div>
+            
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
+              Status: {vddLoading ? 'Processing...' : vddEnabled ? 'Active (Ghost Display On)' : vddInstalled ? 'Driver Installed (Inactive)' : 'Not Installed'}
+            </p>
+
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {!vddInstalled ? (
+                <button className="cc-btn-secondary" style={{ padding: '0.5rem 1rem', fontSize: '0.8rem' }} onClick={handleInstallVdd} disabled={vddLoading}>
+                  {vddLoading ? 'Installing...' : 'Install Driver'}
+                </button>
+              ) : (
+                <button className="cc-btn-secondary" style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', background: vddEnabled ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)' }} onClick={handleToggleVdd} disabled={vddLoading}>
+                  {vddLoading ? 'Updating...' : vddEnabled ? 'Disable Virtual Display' : 'Enable Virtual Display'}
+                </button>
+              )}
+            </div>
+          </div>
 
           <div className="cc-dropdown-wrapper">
             <label className="cc-dropdown-label">Relative Positioning</label>
