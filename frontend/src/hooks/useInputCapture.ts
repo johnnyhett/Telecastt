@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import type { MutableRefObject } from 'react';
 
 export type InputEventType = 'key' | 'mouse' | 'touch' | 'wheel';
@@ -11,9 +11,15 @@ export interface BaseInputEvent {
 export interface MouseInputData {
   x: number;
   y: number;
+  normalizedX: number; // 0.0 to 1.0 relative to display
+  normalizedY: number; // 0.0 to 1.0 relative to display
   button: number;
-  movementX: number;
-  movementY: number;
+  state: 'move' | 'down' | 'up' | 'click';
+}
+
+export interface TouchInputData {
+  touches: Array<{ x: number; y: number; normalizedX: number; normalizedY: number }>;
+  gesture: 'tap' | 'drag' | 'pinch' | 'release';
 }
 
 export interface KeyInputData {
@@ -28,7 +34,7 @@ export interface WheelInputData {
 }
 
 export type InputEventData = BaseInputEvent & {
-  data: MouseInputData | KeyInputData | WheelInputData | Record<string, unknown>;
+  data: MouseInputData | TouchInputData | KeyInputData | WheelInputData | Record<string, unknown>;
 };
 
 export function useInputCapture(
@@ -36,11 +42,16 @@ export function useInputCapture(
   enabled: boolean,
   onInput: (event: InputEventData) => void
 ) {
-  const isPointerLocked = useRef(false);
-
   useEffect(() => {
     if (!enabled || !targetRef.current) return;
     const target = targetRef.current;
+
+    const getNormalizedCoords = (clientX: number, clientY: number) => {
+      const rect = target.getBoundingClientRect();
+      const normalizedX = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const normalizedY = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+      return { normalizedX, normalizedY };
+    };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       onInput({
@@ -59,46 +70,49 @@ export function useInputCapture(
     };
 
     const handleMouseMove = (e: MouseEvent) => {
+      const { normalizedX, normalizedY } = getNormalizedCoords(e.clientX, e.clientY);
       onInput({
         type: 'mouse',
         timestamp: Date.now(),
         data: {
           x: e.clientX,
           y: e.clientY,
+          normalizedX,
+          normalizedY,
           button: e.button,
-          movementX: e.movementX,
-          movementY: e.movementY
+          state: 'move'
         } as MouseInputData
       });
     };
 
     const handleMouseDown = (e: MouseEvent) => {
-      if (enabled && !isPointerLocked.current) {
-        target.requestPointerLock?.();
-      }
+      const { normalizedX, normalizedY } = getNormalizedCoords(e.clientX, e.clientY);
       onInput({
         type: 'mouse',
         timestamp: Date.now(),
         data: {
           x: e.clientX,
           y: e.clientY,
+          normalizedX,
+          normalizedY,
           button: e.button,
-          movementX: e.movementX,
-          movementY: e.movementY
+          state: 'down'
         } as MouseInputData
       });
     };
 
     const handleMouseUp = (e: MouseEvent) => {
+      const { normalizedX, normalizedY } = getNormalizedCoords(e.clientX, e.clientY);
       onInput({
         type: 'mouse',
         timestamp: Date.now(),
         data: {
           x: e.clientX,
           y: e.clientY,
+          normalizedX,
+          normalizedY,
           button: e.button,
-          movementX: e.movementX,
-          movementY: e.movementY
+          state: 'up'
         } as MouseInputData
       });
     };
@@ -111,16 +125,47 @@ export function useInputCapture(
       });
     };
 
-    const handleTouch = (e: TouchEvent) => {
+    const handleTouchStart = (e: TouchEvent) => {
+      const touches = Array.from(e.touches).map(t => {
+        const { normalizedX, normalizedY } = getNormalizedCoords(t.clientX, t.clientY);
+        return { x: t.clientX, y: t.clientY, normalizedX, normalizedY };
+      });
+
       onInput({
         type: 'touch',
         timestamp: Date.now(),
-        data: { touches: e.touches.length }
+        data: {
+          touches,
+          gesture: 'tap'
+        } as TouchInputData
       });
     };
 
-    const handlePointerLockChange = () => {
-      isPointerLocked.current = document.pointerLockElement === target;
+    const handleTouchMove = (e: TouchEvent) => {
+      const touches = Array.from(e.touches).map(t => {
+        const { normalizedX, normalizedY } = getNormalizedCoords(t.clientX, t.clientY);
+        return { x: t.clientX, y: t.clientY, normalizedX, normalizedY };
+      });
+
+      onInput({
+        type: 'touch',
+        timestamp: Date.now(),
+        data: {
+          touches,
+          gesture: touches.length > 1 ? 'pinch' : 'drag'
+        } as TouchInputData
+      });
+    };
+
+    const handleTouchEnd = () => {
+      onInput({
+        type: 'touch',
+        timestamp: Date.now(),
+        data: {
+          touches: [],
+          gesture: 'release'
+        } as TouchInputData
+      });
     };
 
     target.addEventListener('keydown', handleKeyDown);
@@ -129,10 +174,9 @@ export function useInputCapture(
     target.addEventListener('mousedown', handleMouseDown);
     target.addEventListener('mouseup', handleMouseUp);
     target.addEventListener('wheel', handleWheel);
-    target.addEventListener('touchstart', handleTouch);
-    target.addEventListener('touchmove', handleTouch);
-    target.addEventListener('touchend', handleTouch);
-    document.addEventListener('pointerlockchange', handlePointerLockChange);
+    target.addEventListener('touchstart', handleTouchStart);
+    target.addEventListener('touchmove', handleTouchMove);
+    target.addEventListener('touchend', handleTouchEnd);
 
     return () => {
       target.removeEventListener('keydown', handleKeyDown);
@@ -141,14 +185,9 @@ export function useInputCapture(
       target.removeEventListener('mousedown', handleMouseDown);
       target.removeEventListener('mouseup', handleMouseUp);
       target.removeEventListener('wheel', handleWheel);
-      target.removeEventListener('touchstart', handleTouch);
-      target.removeEventListener('touchmove', handleTouch);
-      target.removeEventListener('touchend', handleTouch);
-      document.removeEventListener('pointerlockchange', handlePointerLockChange);
-      
-      if (isPointerLocked.current) {
-        document.exitPointerLock?.();
-      }
+      target.removeEventListener('touchstart', handleTouchStart);
+      target.removeEventListener('touchmove', handleTouchMove);
+      target.removeEventListener('touchend', handleTouchEnd);
     };
   }, [targetRef, enabled, onInput]);
 }
