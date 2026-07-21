@@ -329,6 +329,7 @@ export const useWebRTC = (
     isReady,
     remoteStream: remoteStream.current,
     stats,
-    peerConnection: peerConnection.current
+    peerConnection: peerConnection.current,
+    signalingSocket: ws.current
   };
 };

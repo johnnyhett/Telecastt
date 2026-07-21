@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useWebRTC } from './hooks/useWebRTC';
 import { useDisplayMedia } from './hooks/useDisplayMedia';
 import { useWakeLock } from './hooks/useWakeLock';
 import { useDataChannels } from './hooks/useDataChannels';
 import { useInputCapture } from './hooks/useInputCapture';
+import type { InputEventData } from './hooks/useInputCapture';
 
 import VideoSurface from './components/VideoSurface';
 import TelemetryOverlay from './components/TelemetryOverlay';
@@ -24,7 +25,7 @@ function App() {
   const [streamSettings, setStreamSettings] = useState({ fps: '60', bitrate: '50', resolution: '4K' });
 
   const { startCapture, stopCapture, localStream } = useDisplayMedia();
-  const { connectionState, isReady, remoteStream, stats, peerConnection } = useWebRTC(activeRoomId, mode === 'host', localStream, streamSettings);
+  const { connectionState, isReady, remoteStream, stats, peerConnection, signalingSocket } = useWebRTC(activeRoomId, mode === 'host', localStream, streamSettings);
 
   // Data Channels setup
   const channels = useDataChannels(peerConnection, mode === 'host');
@@ -35,65 +36,84 @@ function App() {
   // Auto wake lock during active streaming on client
   useWakeLock(mode === 'client' && connectionState === 'connected');
 
-  // Client Touchscreen & KVM Input Capture -> Sends via Critical Data Channel
+  // ---------- CLIENT SIDE: Touch/Mouse capture → data channel ----------
+  // Throttle mouse moves to max ~60 events/sec to avoid flooding
+  const lastSentTime = useRef(0);
+
+  const handleClientInput = useCallback((eventData: InputEventData) => {
+    if (!channels.critical || channels.critical.readyState !== 'open') return;
+
+    // Throttle 'move' and 'drag' events to ~16ms intervals (60fps)
+    if (eventData.type === 'mouse' && (eventData.data as any).state === 'move') {
+      const now = performance.now();
+      if (now - lastSentTime.current < 16) return;
+      lastSentTime.current = now;
+    }
+    if (eventData.type === 'touch' && (eventData.data as any).gesture === 'drag') {
+      const now = performance.now();
+      if (now - lastSentTime.current < 16) return;
+      lastSentTime.current = now;
+    }
+
+    channels.critical.send(JSON.stringify(eventData));
+  }, [channels.critical]);
+
   useInputCapture(
     videoContainerRef,
     mode === 'client' && connectionState === 'connected',
-    (eventData) => {
-      if (channels.critical && channels.critical.readyState === 'open') {
-        channels.critical.send(JSON.stringify(eventData));
-      }
-    }
+    handleClientInput
   );
 
-  // Host Remote KVM Injection -> Receives Touchscreen events & Injects into Windows Host OS
+  // ---------- HOST SIDE: Receive data channel input → inject via WebSocket ----------
   useEffect(() => {
     if (mode !== 'host' || !channels.critical) return;
 
     const handleMessage = (e: MessageEvent) => {
       try {
         const eventData = JSON.parse(e.data);
-        let payload: any = null;
+        let payload: Record<string, unknown> | null = null;
 
         if (eventData.type === 'mouse') {
-          const { normalizedX, normalizedY, button, state } = eventData.data;
+          const d = eventData.data;
           payload = {
-            action: state === 'move' ? 'move' : state === 'down' ? 'mousedown' : state === 'up' ? 'mouseup' : 'click',
-            normalizedX,
-            normalizedY,
-            button
+            action: d.state === 'move' ? 'move' : d.state === 'down' ? 'mousedown' : d.state === 'up' ? 'mouseup' : 'click',
+            normalizedX: d.normalizedX,
+            normalizedY: d.normalizedY,
+            button: d.button
           };
         } else if (eventData.type === 'touch') {
-          const { touches, gesture } = eventData.data;
-          if (touches && touches.length > 0) {
-            payload = {
-              action: gesture === 'tap' ? 'click' : gesture === 'drag' ? 'mousedown' : 'move',
-              normalizedX: touches[0].normalizedX,
-              normalizedY: touches[0].normalizedY,
-              button: 0
-            };
-          } else if (gesture === 'release') {
-            payload = { action: 'mouseup', button: 0 };
+          const d = eventData.data;
+          if (d.touches && d.touches.length > 0) {
+            const t = d.touches[0];
+            if (d.gesture === 'tap') {
+              payload = { action: 'click', normalizedX: t.normalizedX, normalizedY: t.normalizedY, button: 0 };
+            } else if (d.gesture === 'drag') {
+              payload = { action: 'move', normalizedX: t.normalizedX, normalizedY: t.normalizedY, button: 0 };
+            }
+          } else if (d.gesture === 'release') {
+            payload = { action: 'mouseup', normalizedX: 0, normalizedY: 0, button: 0 };
           }
         } else if (eventData.type === 'wheel') {
           payload = { action: 'wheel', deltaY: eventData.data.deltaY };
         }
 
-        if (payload) {
-          fetch(`http://${window.location.hostname}:3001/api/input/inject`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          }).catch(() => {});
+        // Send via existing WebSocket (NOT via HTTP fetch — that was the bug)
+        if (payload && signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
+          signalingSocket.send(JSON.stringify({
+            type: 'input-inject',
+            payload
+          }));
         }
-      } catch {}
+      } catch {
+        // Silently discard malformed input
+      }
     };
 
     channels.critical.addEventListener('message', handleMessage);
     return () => {
       channels.critical?.removeEventListener('message', handleMessage);
     };
-  }, [mode, channels.critical]);
+  }, [mode, channels.critical, signalingSocket]);
 
   // Auto-join via Query Parameter (e.g., from QR Code scan)
   useEffect(() => {
@@ -142,7 +162,6 @@ function App() {
       setMode('client');
     } catch (e) {
       console.warn("Could not validate room code with server", e);
-      // Fallback: attempt join anyway
       setActiveRoomId(code);
       setMode('client');
     }
@@ -164,8 +183,8 @@ function App() {
         await document.exitFullscreen();
         setIsFullscreen(false);
       }
-    } catch (err) {
-      console.error("Fullscreen error:", err);
+    } catch {
+      // Silently handle — fullscreen requires user gesture context
     }
   };
 
@@ -186,6 +205,7 @@ function App() {
         ref={videoContainerRef}
         className="app-container" 
         style={{ width: '100vw', height: '100vh', background: 'black', position: 'relative', overflow: 'hidden', touchAction: 'none' }}
+        tabIndex={0}
       >
         <VideoSurface stream={remoteStream} />
         <TelemetryOverlay stats={stats} />
@@ -232,7 +252,7 @@ function App() {
 
           <div style={{ display: 'flex', justifyContent: 'center', margin: '2rem 0' }}>
             <div className="cc-badge cc-badge-active" style={{ padding: '0.75rem 1.5rem', fontSize: '1rem' }}>
-              <span className="pulse-indicator" style={{ width: 10, height: 10, borderRadius: '50%', background: '#34d399', display: 'inline-block' }} />
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#34d399', display: 'inline-block' }} />
               {connectionState.toUpperCase()}
             </div>
           </div>

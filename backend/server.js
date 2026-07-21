@@ -238,6 +238,10 @@ wss.on('connection', (ws) => {
           });
         }
       }
+      // Input injection via WebSocket (much faster than HTTP per-event)
+      else if (data.type === 'input-inject') {
+        inputController.injectInput(data.payload);
+      }
     } catch (e) {
       console.error('Invalid message format received', e);
     }
@@ -283,6 +287,17 @@ const pingInterval = setInterval(() => {
 
 wss.on('close', () => {
   clearInterval(pingInterval);
+  inputController.killInjector();
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  inputController.killInjector();
+  process.exit(0);
+});
+process.on('SIGTERM', () => {
+  inputController.killInjector();
+  process.exit(0);
 });
 
 const PORT = process.env.PORT || 3001;

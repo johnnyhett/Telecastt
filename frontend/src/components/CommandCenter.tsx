@@ -157,8 +157,34 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
           </div>
 
           <p className="cc-topology-desc">
-            Virtual Extended Display driver enables true secondary monitor mode rather than screen duplication.
+            Choose how the virtual display operates alongside your primary monitor.
           </p>
+
+          <div className="cc-dropdown-wrapper">
+            <label className="cc-dropdown-label">Display Mode</label>
+            <select 
+              className="cc-dropdown-select" 
+              defaultValue="extend"
+              onChange={(e) => {
+                const modeMap: Record<string, string> = {
+                  extend: '/external',
+                  duplicate: '/clone',
+                  secondonly: '/external'
+                };
+                const flag = modeMap[e.target.value] || '/external';
+                // Note: displayswitch.exe is a built-in Windows utility
+                fetch(`http://${window.location.hostname}:3001/api/vdd/configure`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ displayMode: e.target.value, flag })
+                }).catch(() => {});
+              }}
+            >
+              <option value="extend">Extend Desktop (True Second Monitor)</option>
+              <option value="duplicate">Duplicate / Mirror Primary</option>
+              <option value="secondonly">Second Screen Only</option>
+            </select>
+          </div>
 
           <div className="cc-dropdown-wrapper" style={{ background: vddEnabled ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.03)', borderColor: vddEnabled ? 'var(--color-accent-cyan)' : 'rgba(255, 255, 255, 0.1)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
@@ -167,7 +193,7 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
             </div>
             
             <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
-              Status: {vddLoading ? 'Processing...' : vddEnabled ? 'Active (Ghost Display On)' : vddInstalled ? 'Driver Installed (Inactive)' : 'Not Installed'}
+              Status: {vddLoading ? 'Processing...' : vddEnabled ? 'Active (Extended Display On)' : vddInstalled ? 'Driver Installed (Inactive)' : 'Not Installed'}
             </p>
 
             <div style={{ display: 'flex', gap: '0.5rem' }}>
