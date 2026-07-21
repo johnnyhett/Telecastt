@@ -93,10 +93,10 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
       {/* Header */}
       <div className="cc-header">
         <div className="cc-header-brand">
-          <img src="/assets/logo.png" alt="Telecastt Logo" className="cc-logo" />
+          <img src="/assets/logo.png" alt="Telecastt Logo" className="cc-logo" style={{ mixBlendMode: 'screen' }} />
           <div>
             <h1 className="cc-title">Telecastt</h1>
-            <p className="cc-subtitle">Enterprise Command Matrix</p>
+            <p className="cc-subtitle">Unified Display Matrix</p>
           </div>
         </div>
 

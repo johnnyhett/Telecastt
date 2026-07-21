@@ -326,25 +326,66 @@ function App() {
           filter: 'blur(30px)'
         }} />
 
-        <img 
-          src="/assets/logo.png" 
-          alt="Telecastt Logo" 
-          style={{ width: 96, height: 96, margin: '0 auto 1.5rem auto', filter: 'drop-shadow(0 12px 30px rgba(56, 189, 248, 0.45))' }} 
-        />
+        {/* Floating Glowing Logo */}
+        <div style={{ position: 'relative', width: 96, height: 96, margin: '0 auto 1.75rem auto' }}>
+          <img 
+            src="/assets/logo.png" 
+            alt="Telecastt Logo" 
+            style={{ 
+              width: '100%', 
+              height: '100%', 
+              objectFit: 'contain',
+              mixBlendMode: 'screen',
+              filter: 'drop-shadow(0 0 25px rgba(56, 189, 248, 0.6))'
+            }} 
+          />
+        </div>
         
-        <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: '2.75rem', fontWeight: 900, letterSpacing: '-0.5px', color: '#ffffff', marginBottom: '0.5rem' }}>
+        <h1 style={{ 
+          fontFamily: 'var(--font-heading)', 
+          fontSize: '3.1rem', 
+          fontWeight: 900, 
+          letterSpacing: '-1px', 
+          color: '#ffffff', 
+          marginBottom: '0.75rem',
+          background: 'linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent'
+        }}>
           Telecastt
         </h1>
-        <p style={{ color: 'var(--foreground-muted)', fontSize: '0.95rem', marginBottom: '2rem', lineHeight: '1.6' }}>
-          Cross-Ecosystem Wireless Display Matrix & Remote KVM Control. Seamlessly turn any iPhone, Android, iPad, or Tablet into a high-fps extended monitor.
+        <p style={{ 
+          color: 'var(--foreground-muted)', 
+          fontSize: '1.05rem', 
+          marginBottom: '2rem', 
+          lineHeight: '1.65',
+          fontStyle: 'italic',
+          fontWeight: 300,
+          maxWidth: '440px',
+          margin: '0 auto 2rem auto'
+        }}>
+          “Screens unchained. Beyond ecosystems, beyond wires — turn any glass into your extended horizon.”
         </p>
 
-        {/* Cross-Ecosystem Support Badges */}
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '0.6rem', marginBottom: '2.25rem', flexWrap: 'wrap' }}>
-          <span className="cc-badge">📱 iPhone / Android</span>
-          <span className="cc-badge">💻 Mac / Windows</span>
-          <span className="cc-badge">📱 iPad / Tablets</span>
-          <span className="cc-badge cc-badge-active">⚡ Native Touch Control</span>
+        {/* Minimalist Poetic Accent Badge */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '2.5rem' }}>
+          <span style={{ 
+            display: 'inline-flex', 
+            alignItems: 'center', 
+            gap: '0.6rem', 
+            padding: '0.5rem 1.35rem', 
+            borderRadius: '30px', 
+            background: 'rgba(56, 189, 248, 0.08)', 
+            border: '1px solid rgba(56, 189, 248, 0.25)', 
+            color: 'var(--cyan)', 
+            fontSize: '0.78rem', 
+            fontWeight: 700, 
+            letterSpacing: '1.5px', 
+            textTransform: 'uppercase' 
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--cyan)', display: 'inline-block', boxShadow: '0 0 10px var(--cyan)' }} />
+            UNBOUND CANVAS &bull; NATIVE TOUCH
+          </span>
         </div>
 
         {/* Action Controls */}
