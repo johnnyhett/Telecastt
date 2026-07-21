@@ -265,6 +265,33 @@ export const useWebRTC = (
     };
   }, [roomId, createPeerConnection, connectSignaling]);
 
+  // Dynamically attach localStream tracks to peerConnection when stream is acquired
+  useEffect(() => {
+    const pc = peerConnection.current;
+    if (!pc || !localStream || !isHost) return;
+
+    const currentSenders = pc.getSenders();
+    let trackAdded = false;
+
+    localStream.getTracks().forEach(track => {
+      const existingSender = currentSenders.find(s => s.track?.kind === track.kind);
+      if (existingSender) {
+        existingSender.replaceTrack(track).catch(console.error);
+      } else {
+        pc.addTrack(track, localStream);
+        trackAdded = true;
+      }
+    });
+
+    if (trackAdded && ws.current?.readyState === WebSocket.OPEN && isReady) {
+      pc.createOffer().then(offer => {
+        return pc.setLocalDescription(offer).then(() => offer);
+      }).then(offer => {
+        ws.current?.send(JSON.stringify({ type: 'offer', offer }));
+      }).catch(console.error);
+    }
+  }, [localStream, isHost, isReady]);
+
   // Apply stream settings to sender
   useEffect(() => {
     if (!peerConnection.current || !streamSettings) return;
