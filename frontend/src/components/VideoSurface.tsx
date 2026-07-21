@@ -4,17 +4,32 @@ interface VideoSurfaceProps {
   stream: MediaStream | null;
 }
 
-// React.memo with a custom comparator that ALWAYS returns true prevents this 
-// component from ever re-rendering after the initial mount.
-// This is critical to ensure React's render cycle doesn't interfere with the 144Hz playback.
-const VideoSurface = React.memo(({ stream }: VideoSurfaceProps) => {
+const VideoSurface: React.FC<VideoSurfaceProps> = ({ stream }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Use a side-effect to attach the stream bypassing React's render logic
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
-    }
+    const video = videoRef.current;
+    if (!video || !stream) return;
+
+    video.srcObject = stream;
+    
+    const playVideo = () => {
+      video.play().catch(err => {
+        console.warn("Video playback requires interaction or muted autoplay:", err);
+      });
+    };
+
+    playVideo();
+
+    const handleTrackAdded = () => {
+      video.srcObject = stream;
+      playVideo();
+    };
+
+    stream.addEventListener('addtrack', handleTrackAdded);
+    return () => {
+      stream.removeEventListener('addtrack', handleTrackAdded);
+    };
   }, [stream]);
 
   return (
@@ -32,6 +47,6 @@ const VideoSurface = React.memo(({ stream }: VideoSurfaceProps) => {
       }}
     />
   );
-}, () => true);
+};
 
 export default VideoSurface;

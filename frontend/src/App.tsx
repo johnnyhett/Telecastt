@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useWebRTC } from './hooks/useWebRTC';
 import { useDisplayMedia } from './hooks/useDisplayMedia';
+import { useWakeLock } from './hooks/useWakeLock';
 import VideoSurface from './components/VideoSurface';
 import TelemetryOverlay from './components/TelemetryOverlay';
 import MacDock from './components/MacDock';
@@ -21,6 +22,9 @@ function App() {
 
   const { startCapture, stopCapture, localStream, error: captureError } = useDisplayMedia();
   const { connectionState, isReady, remoteStream, error: rtcError, stats } = useWebRTC(activeRoomId, mode === 'host', localStream, streamSettings);
+
+  // Auto wake lock during active streaming on client
+  useWakeLock(mode === 'client' && connectionState === 'connected');
 
   // Auto-join via Query Parameter (e.g., from QR Code scan)
   useEffect(() => {
