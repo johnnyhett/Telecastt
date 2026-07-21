@@ -30,15 +30,36 @@ function generateRoomCode() {
 app.get('/api/network-info', (req, res) => {
   const interfaces = os.networkInterfaces();
   let localIp = 'localhost';
+  const allIps = [];
+
   for (const name of Object.keys(interfaces)) {
     for (const iface of interfaces[name]) {
       if (iface.family === 'IPv4' && !iface.internal) {
-        localIp = iface.address;
-        break; // take the first valid one
+        const lowerName = name.toLowerCase();
+        let type = 'other';
+        if (lowerName.includes('wi-fi') || lowerName.includes('wlan') || lowerName.includes('wireless')) {
+          type = 'wifi';
+        } else if (lowerName.includes('bluetooth') || lowerName.includes('pan') || lowerName.includes('bnep')) {
+          type = 'bluetooth';
+        } else if (lowerName.includes('ethernet') || lowerName.includes('eth') || lowerName.includes('lan')) {
+          type = 'ethernet';
+        }
+
+        allIps.push({
+          interfaceName: name,
+          address: iface.address,
+          type
+        });
+
+        if (localIp === 'localhost') {
+          localIp = iface.address;
+        }
       }
     }
   }
-  res.json({ localIp });
+
+  const isBluetoothActive = allIps.some(item => item.type === 'bluetooth');
+  res.json({ localIp, allIps, isBluetoothActive });
 });
 
 app.get('/api/create-room', (req, res) => {
@@ -49,6 +70,7 @@ app.get('/api/create-room', (req, res) => {
 
 // --- Virtual Display Driver (VDD) Control APIs ---
 const iddController = require('./lib/idd-controller');
+const bluetoothController = require('./lib/bluetooth-controller');
 
 app.get('/api/vdd/status', async (req, res) => {
   const result = await iddController.getStatus();
@@ -73,6 +95,22 @@ app.post('/api/vdd/disable', async (req, res) => {
 app.post('/api/vdd/configure', async (req, res) => {
   const { width, height, refreshRate } = req.body || {};
   const result = await iddController.configureDisplay(width || 1920, height || 1080, refreshRate || 60);
+  res.json(result);
+});
+
+// --- Bluetooth PAN Control APIs ---
+app.get('/api/bluetooth/status', async (req, res) => {
+  const result = await bluetoothController.getBluetoothStatus();
+  res.json(result);
+});
+
+app.post('/api/bluetooth/enable', async (req, res) => {
+  const result = await bluetoothController.enableBluetooth();
+  res.json(result);
+});
+
+app.post('/api/bluetooth/disable', async (req, res) => {
+  const result = await bluetoothController.disableBluetooth();
   res.json(result);
 });
 
