@@ -1,7 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useWebRTC } from './hooks/useWebRTC';
 import { useDisplayMedia } from './hooks/useDisplayMedia';
 import { useWakeLock } from './hooks/useWakeLock';
+import { useDataChannels } from './hooks/useDataChannels';
+import { useInputCapture } from './hooks/useInputCapture';
+
 import VideoSurface from './components/VideoSurface';
 import TelemetryOverlay from './components/TelemetryOverlay';
 import MacDock from './components/MacDock';
@@ -20,11 +23,77 @@ function App() {
 
   const [streamSettings, setStreamSettings] = useState({ fps: '60', bitrate: '50', resolution: '4K' });
 
-  const { startCapture, stopCapture, localStream, error: captureError } = useDisplayMedia();
-  const { connectionState, isReady, remoteStream, error: rtcError, stats } = useWebRTC(activeRoomId, mode === 'host', localStream, streamSettings);
+  const { startCapture, stopCapture, localStream } = useDisplayMedia();
+  const { connectionState, isReady, remoteStream, stats, peerConnection } = useWebRTC(activeRoomId, mode === 'host', localStream, streamSettings);
+
+  // Data Channels setup
+  const channels = useDataChannels(peerConnection, mode === 'host');
+
+  // Video container ref for client input capture
+  const videoContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Auto wake lock during active streaming on client
   useWakeLock(mode === 'client' && connectionState === 'connected');
+
+  // Client Touchscreen & KVM Input Capture -> Sends via Critical Data Channel
+  useInputCapture(
+    videoContainerRef,
+    mode === 'client' && connectionState === 'connected',
+    (eventData) => {
+      if (channels.critical && channels.critical.readyState === 'open') {
+        channels.critical.send(JSON.stringify(eventData));
+      }
+    }
+  );
+
+  // Host Remote KVM Injection -> Receives Touchscreen events & Injects into Windows Host OS
+  useEffect(() => {
+    if (mode !== 'host' || !channels.critical) return;
+
+    const handleMessage = (e: MessageEvent) => {
+      try {
+        const eventData = JSON.parse(e.data);
+        let payload: any = null;
+
+        if (eventData.type === 'mouse') {
+          const { normalizedX, normalizedY, button, state } = eventData.data;
+          payload = {
+            action: state === 'move' ? 'move' : state === 'down' ? 'mousedown' : state === 'up' ? 'mouseup' : 'click',
+            normalizedX,
+            normalizedY,
+            button
+          };
+        } else if (eventData.type === 'touch') {
+          const { touches, gesture } = eventData.data;
+          if (touches && touches.length > 0) {
+            payload = {
+              action: gesture === 'tap' ? 'click' : gesture === 'drag' ? 'mousedown' : 'move',
+              normalizedX: touches[0].normalizedX,
+              normalizedY: touches[0].normalizedY,
+              button: 0
+            };
+          } else if (gesture === 'release') {
+            payload = { action: 'mouseup', button: 0 };
+          }
+        } else if (eventData.type === 'wheel') {
+          payload = { action: 'wheel', deltaY: eventData.data.deltaY };
+        }
+
+        if (payload) {
+          fetch(`http://${window.location.hostname}:3001/api/input/inject`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          }).catch(() => {});
+        }
+      } catch {}
+    };
+
+    channels.critical.addEventListener('message', handleMessage);
+    return () => {
+      channels.critical?.removeEventListener('message', handleMessage);
+    };
+  }, [mode, channels.critical]);
 
   // Auto-join via Query Parameter (e.g., from QR Code scan)
   useEffect(() => {
@@ -39,14 +108,13 @@ function App() {
 
   const handleStartHosting = async () => {
     try {
-      const stream = await startCapture();
-      if (!stream) return;
-
-      const res = await fetch(`http://${window.location.hostname}:3001/api/create-room`);
-      const data = await res.json();
+      await startCapture();
       
       const ipRes = await fetch(`http://${window.location.hostname}:3001/api/network-info`);
       const ipData = await ipRes.json();
+      
+      const roomRes = await fetch(`http://${window.location.hostname}:3001/api/create-room`);
+      const data = await roomRes.json();
       
       setLocalIp(ipData.localIp);
       setActiveRoomId(data.roomId);
@@ -82,6 +150,8 @@ function App() {
 
   const handleDisconnect = () => {
     stopCapture();
+    setActiveRoomId(null);
+    setMode('selection');
     window.location.href = window.location.pathname;
   };
 
@@ -112,7 +182,11 @@ function App() {
   // ---------------------------------------------------------
   if (connectionState === 'connected' && mode === 'client') {
     return (
-      <div className="app-container" style={{ width: '100vw', height: '100vh', background: 'black', position: 'relative', overflow: 'hidden' }}>
+      <div 
+        ref={videoContainerRef}
+        className="app-container" 
+        style={{ width: '100vw', height: '100vh', background: 'black', position: 'relative', overflow: 'hidden', touchAction: 'none' }}
+      >
         <VideoSurface stream={remoteStream} />
         <TelemetryOverlay stats={stats} />
         <MacDock 
@@ -129,102 +203,120 @@ function App() {
   // ---------------------------------------------------------
   if (mode === 'host' && activeRoomId) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: '2rem' }}>
+      <div className="app-container" style={{ width: '100vw', height: '100vh', overflowY: 'auto' }}>
         <CommandCenter 
+          activeRoomId={activeRoomId} 
           localIp={localIp}
-          activeRoomId={activeRoomId}
-          isReady={isReady || connectionState === 'connected'}
+          isReady={isReady}
           onDisconnect={handleDisconnect}
           onSettingsChange={setStreamSettings}
         />
-        {(rtcError || captureError) && (
-          <div style={{ position: 'fixed', bottom: 20, right: 20, background: 'rgba(255,0,0,0.8)', color: 'white', padding: '1rem', borderRadius: '8px' }}>
-            {rtcError} {captureError}
-          </div>
-        )}
       </div>
     );
   }
 
   // ---------------------------------------------------------
-  // SELECTION & NEGOTIATION VIEWS
+  // CLIENT CONNECTING STATE VIEW
+  // ---------------------------------------------------------
+  if (mode === 'client' && activeRoomId) {
+    return (
+      <div className="app-container fade-enter-active" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', width: '100vw' }}>
+        <div className="c-glass-card" style={{ maxWidth: 450, width: '90%', textAlign: 'center', padding: '3rem 2rem' }}>
+          <img src="/assets/logo.png" alt="Telecastt" style={{ width: 80, height: 80, marginBottom: '1.5rem', filter: 'drop-shadow(0 0 15px var(--accent-glow))' }} />
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.75rem', marginBottom: '0.5rem', color: '#ffffff' }}>
+            {connectionState === 'connecting' ? 'Establishing Handshake...' : connectionState === 'reconnecting' ? 'Reconnecting Session...' : 'Connecting to Host'}
+          </h2>
+          <p style={{ color: 'var(--foreground-muted)', fontSize: '0.9rem', marginBottom: '2rem' }}>
+            Session Code: <span className="mono" style={{ color: 'var(--cyan)', fontWeight: 700 }}>{activeRoomId}</span>
+          </p>
+
+          <div style={{ display: 'flex', justifyContent: 'center', margin: '2rem 0' }}>
+            <div className="cc-badge cc-badge-active" style={{ padding: '0.75rem 1.5rem', fontSize: '1rem' }}>
+              <span className="pulse-indicator" style={{ width: 10, height: 10, borderRadius: '50%', background: '#34d399', display: 'inline-block' }} />
+              {connectionState.toUpperCase()}
+            </div>
+          </div>
+
+          <button className="c-button c-button-secondary" onClick={handleDisconnect} style={{ marginTop: '1rem' }}>
+            Cancel Connection
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------
+  // SELECTION VIEW (HERO SELECTION)
   // ---------------------------------------------------------
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: '2rem', position: 'relative' }}>
-      
-      <div className="c-glass-card fade-enter-active" style={{ textAlign: 'center', maxWidth: '440px', width: '100%', position: 'relative', zIndex: 2 }}>
+    <div className="app-container fade-enter-active" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', width: '100vw', padding: '2rem' }}>
+      <div className="c-glass-card" style={{ maxWidth: 520, width: '100%', textAlign: 'center', position: 'relative' }}>
         
-        {mode === 'selection' && (
-          <div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '2.5rem', position: 'relative' }}>
-              <div style={{ position: 'relative', marginBottom: '1.25rem' }}>
-                <div style={{ position: 'absolute', top: -10, left: -10, right: -10, bottom: -10, borderRadius: '50%', background: 'var(--color-cyan-glow)', filter: 'blur(20px)', zIndex: 0 }} />
-                <img src="/assets/logo.png" alt="Telecastt" style={{ width: '80px', height: '80px', objectFit: 'contain', position: 'relative', zIndex: 1, filter: 'drop-shadow(0 0 15px rgba(56, 189, 248, 0.6))' }} />
-              </div>
-              
-              <h1 style={{ margin: '0 0 0.4rem 0', fontWeight: '800', letterSpacing: '3px', textTransform: 'uppercase', fontSize: '2.25rem', background: 'linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                Telecastt
-              </h1>
-              <p style={{ margin: 0, color: 'var(--color-cyan)', letterSpacing: '2px', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>
-                Enterprise Display Protocol
-              </p>
-            </div>
+        {/* Glow Halo */}
+        <div style={{
+          position: 'absolute',
+          top: '-60px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: '200px',
+          height: '200px',
+          background: 'radial-gradient(circle, var(--accent-glow) 0%, transparent 70%)',
+          pointerEvents: 'none'
+        }} />
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <button className="c-button" onClick={handleStartHosting}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                Initialize Host Node
-              </button>
-              
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', margin: '0.5rem 0' }}>
-                <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
-                <span style={{ fontSize: '0.7rem', color: 'var(--color-text-dim)', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 600 }}>OR LINK AS DISPLAY</span>
-                <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
-              </div>
+        <img 
+          src="/assets/logo.png" 
+          alt="Telecastt Logo" 
+          style={{ width: 90, height: 90, margin: '0 auto 1.5rem auto', filter: 'drop-shadow(0 10px 25px rgba(94, 106, 210, 0.4))' }} 
+        />
+        
+        <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: '2.5rem', fontWeight: 800, letterSpacing: '-0.5px', color: '#ffffff', marginBottom: '0.5rem' }}>
+          Telecastt
+        </h1>
+        <p style={{ color: 'var(--foreground-muted)', fontSize: '0.95rem', marginBottom: '2.5rem', lineHeight: '1.5' }}>
+          Ultra-low latency wireless display extension & remote workspace matrix.
+        </p>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <input 
-                  className="c-input" 
-                  placeholder="ENTER SESSION CODE" 
-                  value={roomIdInput} 
-                  onChange={e => setRoomIdInput(e.target.value.toUpperCase())}
-                  maxLength={6}
-                />
-                <button className="c-button c-button-secondary" onClick={handleJoinClient} disabled={roomIdInput.length !== 6}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-                  Connect to Host
-                </button>
-              </div>
-            </div>
+        {/* Feature Badges */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem', marginBottom: '2.5rem', flexWrap: 'wrap' }}>
+          <span className="cc-badge">🔒 DTLS 1.3</span>
+          <span className="cc-badge">⚡ &lt;5ms Latency</span>
+          <span className="cc-badge">🖥️ 4K 144Hz</span>
+        </div>
 
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginTop: '2.5rem', paddingTop: '1.25rem', borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: '0.7rem', color: 'var(--color-text-dim)', textTransform: 'uppercase', letterSpacing: '1px' }}>
-              <span>🔒 DTLS 1.3</span>
-              <span>⚡ &lt;5ms Latency</span>
-              <span>🖥️ 4K 144Hz</span>
-            </div>
+        {/* Action Controls */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <button className="c-button" onClick={handleStartHosting}>
+            Initialize Host Matrix
+          </button>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', margin: '0.5rem 0' }}>
+            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+            <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--foreground-dim)' }}>or join session</span>
+            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
           </div>
-        )}
 
-        {mode === 'client' && activeRoomId && (
-          <div className="fade-enter-active">
-            <div style={{ margin: '2.5rem 0' }}>
-              <div style={{ width: '48px', height: '48px', border: '3px solid rgba(255,255,255,0.08)', borderTopColor: 'var(--color-cyan)', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto', boxShadow: '0 0 20px var(--color-cyan-glow)' }} />
-            </div>
-            <h3 style={{ margin: '0 0 0.5rem 0', fontFamily: 'var(--font-display)', fontSize: '1.25rem', color: 'white' }}>Connecting to Host Node</h3>
-            <p className="mono-font" style={{ fontSize: '1.75rem', color: 'var(--color-cyan)', letterSpacing: '4px', margin: '0.5rem 0' }}>{activeRoomId}</p>
-            <p style={{ opacity: 0.6, fontSize: '0.85rem', marginTop: '0.5rem', textTransform: 'capitalize' }}>Handshake State: {connectionState}</p>
-            <button className="c-button c-button-secondary" style={{ marginTop: '2rem' }} onClick={handleDisconnect}>Cancel Connection</button>
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <input 
+              type="text" 
+              className="c-input" 
+              placeholder="ENTER CODE" 
+              maxLength={6}
+              value={roomIdInput}
+              onChange={(e) => setRoomIdInput(e.target.value.toUpperCase())}
+            />
+            <button 
+              className="c-button c-button-secondary" 
+              style={{ width: 'auto', padding: '0 1.5rem' }}
+              disabled={roomIdInput.trim().length !== 6}
+              onClick={handleJoinClient}
+            >
+              Connect
+            </button>
           </div>
-        )}
+        </div>
 
-        {(rtcError || captureError) && (
-          <div style={{ marginTop: '1.25rem', color: '#f43f5e', fontSize: '0.85rem', background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.3)', padding: '0.75rem', borderRadius: '12px' }}>
-            {rtcError} {captureError}
-          </div>
-        )}
       </div>
-
     </div>
   );
 }

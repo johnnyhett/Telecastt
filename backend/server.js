@@ -128,6 +128,13 @@ app.get('/api/validate-room/:roomId', (req, res) => {
 // --- Virtual Display Driver (VDD) Control APIs ---
 const iddController = require('./lib/idd-controller');
 const bluetoothController = require('./lib/bluetooth-controller');
+const inputController = require('./lib/input-controller');
+
+// --- Input Injection Control API (KVM Remote Control) ---
+app.post('/api/input/inject', async (req, res) => {
+  const result = await inputController.injectInput(req.body);
+  res.json(result);
+});
 
 app.get('/api/vdd/status', async (req, res) => {
   const result = await iddController.getStatus();
