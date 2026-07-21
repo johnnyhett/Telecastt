@@ -134,51 +134,76 @@ function App() {
   // SELECTION & NEGOTIATION VIEWS
   // ---------------------------------------------------------
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', padding: '2rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: '2rem', position: 'relative' }}>
       
-      <div className="c-glass-card fade-enter-active" style={{ textAlign: 'center', maxWidth: '400px', width: '100%', position: 'relative' }}>
+      <div className="c-glass-card fade-enter-active" style={{ textAlign: 'center', maxWidth: '440px', width: '100%', position: 'relative', zIndex: 2 }}>
         
         {mode === 'selection' && (
           <div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '2rem' }}>
-              <img src="/assets/logo.png" alt="Telecastt" style={{ width: '100px', height: '100px', marginBottom: '1.5rem', borderRadius: '20px', boxShadow: '0 10px 30px rgba(59, 130, 246, 0.3)' }} />
-              <h1 style={{ margin: '0 0 0.5rem 0', fontWeight: '800', letterSpacing: '-0.5px', textTransform: 'uppercase', fontSize: '2rem' }}>Telecastt</h1>
-              <p style={{ margin: 0, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '1px', fontSize: '0.85rem' }}>Enterprise Stream Control Protocol</p>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '2.5rem', position: 'relative' }}>
+              <div style={{ position: 'relative', marginBottom: '1.25rem' }}>
+                <div style={{ position: 'absolute', top: -10, left: -10, right: -10, bottom: -10, borderRadius: '50%', background: 'var(--color-cyan-glow)', filter: 'blur(20px)', zIndex: 0 }} />
+                <img src="/assets/logo.png" alt="Telecastt" style={{ width: '80px', height: '80px', objectFit: 'contain', position: 'relative', zIndex: 1, filter: 'drop-shadow(0 0 15px rgba(56, 189, 248, 0.6))' }} />
+              </div>
+              
+              <h1 style={{ margin: '0 0 0.4rem 0', fontWeight: '800', letterSpacing: '3px', textTransform: 'uppercase', fontSize: '2.25rem', background: 'linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                Telecastt
+              </h1>
+              <p style={{ margin: 0, color: 'var(--color-cyan)', letterSpacing: '2px', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>
+                Enterprise Display Protocol
+              </p>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               <button className="c-button" onClick={handleStartHosting}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
                 Initialize Host Node
               </button>
-              <div style={{ margin: '1rem 0', opacity: 0.5, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '2px' }}>Network Link</div>
-              <input 
-                className="c-input" 
-                placeholder="Enter Room Code" 
-                value={roomIdInput} 
-                onChange={e => setRoomIdInput(e.target.value.toUpperCase())}
-                maxLength={6}
-              />
-              <button className="c-button" onClick={handleJoinClient} disabled={roomIdInput.length !== 6}>
-                Connect to Host
-              </button>
+              
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', margin: '0.5rem 0' }}>
+                <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
+                <span style={{ fontSize: '0.7rem', color: 'var(--color-text-dim)', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 600 }}>OR LINK AS DISPLAY</span>
+                <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <input 
+                  className="c-input" 
+                  placeholder="ENTER SESSION CODE" 
+                  value={roomIdInput} 
+                  onChange={e => setRoomIdInput(e.target.value.toUpperCase())}
+                  maxLength={6}
+                />
+                <button className="c-button c-button-secondary" onClick={handleJoinClient} disabled={roomIdInput.length !== 6}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                  Connect to Host
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginTop: '2.5rem', paddingTop: '1.25rem', borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: '0.7rem', color: 'var(--color-text-dim)', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              <span>🔒 DTLS 1.3</span>
+              <span>⚡ &lt;5ms Latency</span>
+              <span>🖥️ 4K 144Hz</span>
             </div>
           </div>
         )}
 
         {mode === 'client' && activeRoomId && (
           <div className="fade-enter-active">
-            <div style={{ margin: '2rem 0' }}>
-              <div className="spinner" style={{ width: '40px', height: '40px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: 'var(--color-accent-cyan)', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto' }} />
+            <div style={{ margin: '2.5rem 0' }}>
+              <div style={{ width: '48px', height: '48px', border: '3px solid rgba(255,255,255,0.08)', borderTopColor: 'var(--color-cyan)', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto', boxShadow: '0 0 20px var(--color-cyan-glow)' }} />
             </div>
-            <p>Connecting to <strong>{activeRoomId}</strong>...</p>
-            <p style={{ opacity: 0.5, fontSize: '0.9rem', marginTop: '0.5rem', textTransform: 'capitalize' }}>State: {connectionState}</p>
-            <button className="c-button" style={{ marginTop: '2rem', background: 'rgba(255,255,255,0.1)' }} onClick={handleDisconnect}>Cancel</button>
+            <h3 style={{ margin: '0 0 0.5rem 0', fontFamily: 'var(--font-display)', fontSize: '1.25rem', color: 'white' }}>Connecting to Host Node</h3>
+            <p className="mono-font" style={{ fontSize: '1.75rem', color: 'var(--color-cyan)', letterSpacing: '4px', margin: '0.5rem 0' }}>{activeRoomId}</p>
+            <p style={{ opacity: 0.6, fontSize: '0.85rem', marginTop: '0.5rem', textTransform: 'capitalize' }}>Handshake State: {connectionState}</p>
+            <button className="c-button c-button-secondary" style={{ marginTop: '2rem' }} onClick={handleDisconnect}>Cancel Connection</button>
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
         )}
 
         {(rtcError || captureError) && (
-          <div style={{ marginTop: '1rem', color: '#ff4d4f', fontSize: '0.9rem', background: 'rgba(255,0,0,0.1)', padding: '0.5rem', borderRadius: '8px' }}>
+          <div style={{ marginTop: '1.25rem', color: '#f43f5e', fontSize: '0.85rem', background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.3)', padding: '0.75rem', borderRadius: '12px' }}>
             {rtcError} {captureError}
           </div>
         )}

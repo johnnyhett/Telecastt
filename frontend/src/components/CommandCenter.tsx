@@ -91,10 +91,27 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ localIp, activeRoomId, is
     <div className="cc-container">
       {/* Header */}
       <div className="cc-header">
-        <img src="/assets/logo.png" alt="Telecastt Logo" className="cc-logo" />
-        <div>
-          <h1 className="cc-title">Telecastt</h1>
-          <p className="cc-subtitle">Enterprise Command Center</p>
+        <div className="cc-header-brand">
+          <img src="/assets/logo.png" alt="Telecastt Logo" className="cc-logo" />
+          <div>
+            <h1 className="cc-title">Telecastt</h1>
+            <p className="cc-subtitle">Enterprise Command Matrix</p>
+          </div>
+        </div>
+
+        <div className="cc-header-badges">
+          <div className="cc-badge cc-badge-active">
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#34d399', display: 'inline-block' }} />
+            PROTOCOL V7.7
+          </div>
+          <div className="cc-badge">
+            <ShieldCheck size={14} style={{ color: 'var(--color-cyan)' }} />
+            AES-256 DTLS
+          </div>
+          <div className="cc-badge">
+            <Activity size={14} style={{ color: '#38bdf8' }} />
+            AIR-GAP READY
+          </div>
         </div>
       </div>
 

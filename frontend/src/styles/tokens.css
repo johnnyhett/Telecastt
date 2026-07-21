@@ -1,55 +1,88 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;600;800&display=swap');
 
 :root {
-  /* Core Color Palette - Enterprise Navy */
-  --color-black: #020617;
-  --color-gray-900: #0f172a;
-  --color-gray-800: #1e293b;
-  --color-white: #FFFFFF;
-  --color-accent-purple: #2563eb; /* Corporate Blue */
-  --color-accent-cyan: #60a5fa; /* Soft Blue */
-
-  /* Glass Opacities */
-  --glass-alpha-5: rgba(255, 255, 255, 0.05);
-  --glass-alpha-10: rgba(255, 255, 255, 0.10);
-  --glass-alpha-20: rgba(255, 255, 255, 0.20);
+  /* Ultra-Luxury Color Tokens */
+  --color-bg-base: #030712;
+  --color-bg-surface: rgba(15, 23, 42, 0.7);
+  --color-bg-surface-hover: rgba(30, 41, 59, 0.8);
   
-  /* Blurs */
-  --blur-md: blur(16px);
-  --blur-lg: blur(32px);
+  --color-primary: #3b82f6;
+  --color-primary-glow: rgba(59, 130, 246, 0.4);
+  --color-cyan: #38bdf8;
+  --color-cyan-glow: rgba(56, 189, 248, 0.4);
+  --color-indigo: #6366f1;
+  --color-purple: #8b5cf6;
+  --color-emerald: #10b981;
+  --color-rose: #f43f5e;
+  
+  --color-text-bright: #ffffff;
+  --color-text-main: rgba(243, 244, 246, 0.92);
+  --color-text-muted: rgba(156, 163, 175, 0.75);
+  --color-text-dim: rgba(107, 114, 128, 0.5);
 
-  /* Spacing */
-  --space-2: 0.5rem;
-  --space-4: 1rem;
-  --space-8: 2rem;
+  /* Advanced Glass Tokens */
+  --glass-bg: rgba(15, 23, 42, 0.65);
+  --glass-bg-card: rgba(15, 23, 42, 0.85);
+  --glass-border: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.02) 100%);
+  --glass-border-simple: rgba(255, 255, 255, 0.08);
+  --glass-border-glow: rgba(56, 189, 248, 0.3);
+  
+  --blur-glass: blur(32px) saturate(190%);
+  --blur-glass-heavy: blur(48px) saturate(220%);
 
-  /* Semantic */
-  --surface-bg: var(--color-black);
-  --surface-glass-base: var(--glass-alpha-10);
-  --border-glass-default: 1px solid var(--glass-alpha-10);
-  --border-glass-highlight: 1px solid var(--glass-alpha-20);
-  --text-primary: rgba(255, 255, 255, 0.9);
-  --text-secondary: rgba(255, 255, 255, 0.6);
-  --shadow-ambient: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+  /* Shadows */
+  --shadow-neon-cyan: 0 0 30px rgba(56, 189, 248, 0.25);
+  --shadow-neon-blue: 0 0 30px rgba(59, 130, 246, 0.25);
+  --shadow-card-heavy: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 1px rgba(255, 255, 255, 0.1);
 
-  /* Animations */
-  --ease-spring: linear(0, 0.4, 0.75, 0.95, 1.05, 1.08, 1.05, 1.01, 0.99, 1);
-  --duration-spring: 400ms;
+  /* Fonts */
+  --font-main: 'Inter', system-ui, sans-serif;
+  --font-display: 'Outfit', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
 body {
-  background-color: var(--surface-bg);
-  background-image: radial-gradient(circle at 50% 0%, rgba(37, 99, 235, 0.15), transparent 50%);
-  color: var(--text-primary);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: var(--color-bg-base);
+  background-image: 
+    radial-gradient(circle at 15% 15%, rgba(59, 130, 246, 0.18), transparent 45%),
+    radial-gradient(circle at 85% 85%, rgba(139, 92, 246, 0.15), transparent 45%),
+    radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.08), transparent 60%);
+  color: var(--color-text-main);
+  font-family: var(--font-main);
   margin: 0;
   padding: 0;
   min-height: 100vh;
-  overflow: hidden;
+  overflow-x: hidden;
+  position: relative;
 }
 
-h1, h2, h3, h4, h5, h6, .outfit-font {
-  font-family: 'Outfit', sans-serif;
+/* Subtle Cybernetic Grid Overlay */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+h1, h2, h3, h4, h5, h6, .display-font {
+  font-family: var(--font-display);
+}
+
+.mono-font {
+  font-family: var(--font-mono);
 }
 
 * {

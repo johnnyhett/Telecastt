@@ -1,53 +1,128 @@
+/* glass.css - Luxury UI System */
+
 .c-glass-card {
+  background: var(--glass-bg-card);
+  backdrop-filter: var(--blur-glass-heavy);
+  -webkit-backdrop-filter: var(--blur-glass-heavy);
+  border: 1px solid var(--glass-border-simple);
+  border-radius: 24px;
+  padding: 2.5rem;
+  box-shadow: var(--shadow-card-heavy);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
-  background: var(--surface-glass-base);
-  backdrop-filter: var(--blur-md);
-  -webkit-backdrop-filter: var(--blur-md);
-  border: var(--border-glass-default);
-  border-radius: var(--space-4);
-  box-shadow: var(--shadow-ambient);
-  padding: var(--space-8);
-  transition: transform var(--duration-spring) var(--ease-spring),
-              border-color var(--duration-spring) var(--ease-spring);
-  will-change: transform;
+  overflow: hidden;
+}
+
+.c-glass-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
 }
 
 .c-glass-card:hover {
-  transform: translateY(-4px) scale(1.02);
-  border-color: var(--border-glass-highlight);
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card-heavy), 0 0 40px rgba(59, 130, 246, 0.15);
 }
 
+/* Premium Buttons */
 .c-button {
-  background: var(--color-accent-purple);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 12px 24px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 0.2s, background 0.2s;
-}
-
-.c-button:hover {
-  transform: scale(1.05);
-  background: var(--color-accent-cyan);
-}
-
-.c-input {
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--border-glass-default);
-  color: white;
-  padding: 12px;
-  border-radius: 8px;
-  font-size: 1.2rem;
-  text-align: center;
   width: 100%;
-  margin-bottom: 1rem;
+  padding: 1rem 1.75rem;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #ffffff;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  box-shadow: 0 4px 20px rgba(37, 99, 235, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.c-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(37, 99, 235, 0.6), 0 0 20px rgba(56, 189, 248, 0.4);
+}
+
+.c-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.c-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: grayscale(80%);
+}
+
+.c-button-secondary {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--color-text-main);
+  box-shadow: none;
+}
+
+.c-button-secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+/* Inputs */
+.c-input {
+  width: 100%;
+  background: rgba(3, 7, 18, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 1rem 1.25rem;
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  letter-spacing: 4px;
+  text-align: center;
   outline: none;
-  transition: border-color 0.2s;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
 .c-input:focus {
-  border-color: var(--color-accent-cyan);
+  border-color: var(--color-cyan);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2), inset 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.c-input::placeholder {
+  font-family: var(--font-main);
+  font-size: 0.9rem;
+  letter-spacing: 1px;
+  color: var(--color-text-dim);
+}
+
+/* Animations */
+.fade-enter-active {
+  animation: fadeInScale 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
