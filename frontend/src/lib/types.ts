@@ -24,6 +24,19 @@ export interface TelemetryStats {
 export type PointerKind = 'mouse' | 'touch' | 'pen';
 export type PointerPhase = 'down' | 'move' | 'up';
 
+// A normalized sub-rectangle (0..1) of the host's shared surface. In "extend"
+// mode each secondary is assigned a distinct region and shows only that slice,
+// so N secondaries tile the desktop into one wall. The default full frame
+// (0,0,1,1) is a plain mirror.
+export interface DisplayRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export const FULL_REGION: DisplayRegion = { x: 0, y: 0, w: 1, h: 1 };
+
 // Wire format sent client -> host over the reliable "control" data channel.
 // Pointer events unify mouse/touch/pen and carry a stable id, so multi-touch
 // and precise down/move/up transitions survive the trip.

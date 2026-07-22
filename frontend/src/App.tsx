@@ -25,16 +25,18 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [uiError, setUiError] = useState<string | null>(null);
   const [settings, setSettings] = useState<StreamSettings>({ fps: 60, bitrateMbps: 50, resolution: '4K' });
+  const [extend, setExtend] = useState(false);
 
   const isHost = mode === 'host';
 
   const { localStream, startCapture, stopCapture } = useDisplayCapture();
-  const { connectionState, isReady, error, remoteStream, stats, channels, peerCount } = useWebRTC(
+  const { connectionState, isReady, error, remoteStream, stats, channels, peerCount, region } = useWebRTC(
     roomId,
     isHost,
     localStream,
     isHost ? settings : null,
-    hostToken
+    hostToken,
+    extend
   );
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -88,20 +90,27 @@ export default function App() {
   const seqRef = useRef(0);
   const sendInput = useCallback(
     (msg: InputMessage) => {
+      // Map this secondary's local coordinates into its assigned region of the
+      // host surface, so control lands at the right absolute position in extend
+      // mode (identity when the region is the full frame).
+      const out: InputMessage =
+        msg.t === 'p'
+          ? { ...msg, x: region.x + msg.x * region.w, y: region.y + msg.y * region.h }
+          : msg;
       // Pointer moves take the unreliable "cursor" lane (no head-of-line
       // blocking under loss); a sequence number lets the host drop stale
       // reorders. Everything else stays on the reliable control lane.
-      if (msg.t === 'p' && msg.phase === 'move' && msg.pt !== 'touch') {
+      if (out.t === 'p' && out.phase === 'move' && out.pt !== 'touch') {
         const fast = channels.cursor;
         if (fast && fast.readyState === 'open') {
-          fast.send(JSON.stringify({ ...msg, s: ++seqRef.current }));
+          fast.send(JSON.stringify({ ...out, s: ++seqRef.current }));
           return;
         }
       }
       const ch = channels.control;
-      if (ch && ch.readyState === 'open') ch.send(JSON.stringify(msg));
+      if (ch && ch.readyState === 'open') ch.send(JSON.stringify(out));
     },
-    [channels.control, channels.cursor]
+    [channels.control, channels.cursor, region]
   );
 
   // Client sends its input over the control channel; the host relays each
@@ -190,6 +199,7 @@ export default function App() {
         roomId={roomId}
         remoteStream={remoteStream}
         stats={stats}
+        region={region}
         containerRef={containerRef}
         videoRef={videoRef}
         isFullscreen={isFullscreen}
@@ -208,6 +218,8 @@ export default function App() {
         localIp={localIp}
         isReady={isReady}
         peerCount={peerCount}
+        extend={extend}
+        onToggleExtend={setExtend}
         connectionState={connectionState}
         onSettingsChange={setSettings}
         onDisconnect={handleDisconnect}

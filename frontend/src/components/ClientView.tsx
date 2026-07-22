@@ -1,5 +1,5 @@
 import type { RefObject } from 'react';
-import type { ConnectionState, TelemetryStats } from '../lib/types';
+import type { ConnectionState, TelemetryStats, DisplayRegion } from '../lib/types';
 import VideoStage from './VideoStage';
 import Telemetry from './Telemetry';
 import ControlDock from './ControlDock';
@@ -10,6 +10,7 @@ interface ClientViewProps {
   roomId: string | null;
   remoteStream: MediaStream | null;
   stats: TelemetryStats;
+  region: DisplayRegion;
   containerRef: RefObject<HTMLDivElement | null>;
   videoRef: RefObject<HTMLVideoElement | null>;
   isFullscreen: boolean;
@@ -25,6 +26,7 @@ export default function ClientView({
   roomId,
   remoteStream,
   stats,
+  region,
   containerRef,
   videoRef,
   isFullscreen,
@@ -36,7 +38,7 @@ export default function ClientView({
   if (connectionState === 'connected') {
     return (
       <div className="client-live" ref={containerRef} tabIndex={0}>
-        <VideoStage stream={remoteStream} videoRef={videoRef} />
+        <VideoStage stream={remoteStream} videoRef={videoRef} region={region} />
         <Telemetry stats={stats} />
         <ControlDock
           isFullscreen={isFullscreen}

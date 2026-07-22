@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ICE_SERVERS, SIGNALING_URL } from '../lib/env';
-import type { ConnectionState, StreamSettings, TelemetryStats } from '../lib/types';
+import type { ConnectionState, StreamSettings, TelemetryStats, DisplayRegion } from '../lib/types';
+import { FULL_REGION } from '../lib/types';
 import { attachHostInput, attachClipboardReceiver } from '../lib/peer-io';
 
 export interface RtcChannels {
@@ -19,6 +20,8 @@ export interface UseWebRTCResult {
   relayInput: (payload: unknown) => void;
   /** Host only: number of secondary PCs currently connected. */
   peerCount: number;
+  /** Client only: the region of the host surface this secondary should show. */
+  region: DisplayRegion;
 }
 
 const MAX_RETRIES = 5;
@@ -97,7 +100,8 @@ export function useWebRTC(
   isHost: boolean,
   localStream: MediaStream | null,
   streamSettings: StreamSettings | null,
-  hostToken: string | null = null
+  hostToken: string | null = null,
+  extend = false
 ): UseWebRTCResult {
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
   const [isReady, setIsReady] = useState(false);
@@ -106,6 +110,7 @@ export function useWebRTC(
   const [channels, setChannels] = useState<RtcChannels>({ control: null, clipboard: null, cursor: null });
   const [stats, setStats] = useState<TelemetryStats>({ fps: 0, bitrateMbps: '0.00', jitterMs: '0.0', rttMs: '0' });
   const [peerCount, setPeerCount] = useState(0);
+  const [region, setRegion] = useState<DisplayRegion>(FULL_REGION);
 
   const wsRef = useRef<WebSocket | null>(null);
   const retryCount = useRef(0);
@@ -127,11 +132,13 @@ export function useWebRTC(
   const roomIdRef = useRef(roomId);
   const hostTokenRef = useRef(hostToken);
   const settingsRef = useRef(streamSettings);
+  const extendRef = useRef(extend);
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
   useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
   useEffect(() => { roomIdRef.current = roomId; }, [roomId]);
   useEffect(() => { hostTokenRef.current = hostToken; }, [hostToken]);
   useEffect(() => { settingsRef.current = streamSettings; }, [streamSettings]);
+  useEffect(() => { extendRef.current = extend; }, [extend]);
 
   const sendSignal = useCallback((msg: object) => {
     const ws = wsRef.current;
@@ -171,6 +178,21 @@ export function useWebRTC(
     });
   }, []);
 
+  // Host: assign each secondary a region of the shared surface. In extend mode,
+  // tile into equal vertical columns by join order; otherwise every secondary
+  // mirrors the full frame. Delivered over each secondary's control channel.
+  const assignRegions = useCallback(() => {
+    const peers = [...peersRef.current.values()];
+    const n = peers.length;
+    peers.forEach((entry, i) => {
+      const region: DisplayRegion =
+        extendRef.current && n > 0 ? { x: i / n, y: 0, w: 1 / n, h: 1 } : FULL_REGION;
+      if (entry.control.readyState === 'open') {
+        try { entry.control.send(JSON.stringify({ t: 'region', ...region })); } catch { /* ignore */ }
+      }
+    });
+  }, []);
+
   // ---- Host: create (or replace) a connection to one secondary PC ----
   const createHostPeer = useCallback((peerId: string) => {
     const existing = peersRef.current.get(peerId);
@@ -203,12 +225,16 @@ export function useWebRTC(
       redistributeBandwidth();
     };
     control.addEventListener('message', onQuality);
+    // Send this secondary its region once its control channel is open.
+    const onControlOpen = () => assignRegions();
+    control.addEventListener('open', onControlOpen);
 
     const entry: HostPeer = {
       pc, control, clipboard, cursor, level: 'auto', pending: [],
       dispose: () => {
         disposeInput(); disposeCursor(); disposeClip();
         control.removeEventListener('message', onQuality);
+        control.removeEventListener('open', onControlOpen);
         try { pc.close(); } catch { /* ignore */ }
       },
     };
@@ -218,7 +244,10 @@ export function useWebRTC(
       if (e.candidate) sendSignal({ type: 'ice-candidate', to: peerId, candidate: e.candidate });
     };
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'connected') redistributeBandwidth();
+      if (pc.connectionState === 'connected') {
+        redistributeBandwidth();
+        assignRegions(); // resend once fully connected — the client's listener is attached by now
+      }
       refreshHostState();
     };
 
@@ -229,7 +258,7 @@ export function useWebRTC(
 
     redistributeBandwidth();
     refreshHostState();
-  }, [relayInput, sendSignal, redistributeBandwidth, refreshHostState]);
+  }, [relayInput, sendSignal, redistributeBandwidth, assignRegions, refreshHostState]);
 
   const removeHostPeer = useCallback((peerId: string) => {
     const entry = peersRef.current.get(peerId);
@@ -237,8 +266,9 @@ export function useWebRTC(
     entry.dispose();
     peersRef.current.delete(peerId);
     redistributeBandwidth(); // remaining secondaries reclaim the freed budget
+    assignRegions();         // and re-tile so the columns stay contiguous
     refreshHostState();
-  }, [redistributeBandwidth, refreshHostState]);
+  }, [redistributeBandwidth, assignRegions, refreshHostState]);
 
   // ---- Client: single connection to the host ----
   const createClientPeer = useCallback(() => {
@@ -431,6 +461,7 @@ export function useWebRTC(
     setError(null);
     setIsReady(false);
     setPeerCount(0);
+    setRegion(FULL_REGION);
     hostIdRef.current = null;
     connectSignaling();
 
@@ -486,6 +517,30 @@ export function useWebRTC(
     redistributeBandwidth();
   }, [streamSettings, isHost, redistributeBandwidth]);
 
+  // Host: re-assign regions whenever mirror/extend mode toggles.
+  useEffect(() => {
+    if (!isHost) return;
+    assignRegions();
+  }, [extend, isHost, assignRegions]);
+
+  // Client: receive the region this secondary should display, from the host,
+  // over the control channel.
+  useEffect(() => {
+    if (isHost) return;
+    const ch = channels.control;
+    if (!ch) return;
+    const onMsg = (e: MessageEvent) => {
+      let m: { t?: string; x?: number; y?: number; w?: number; h?: number };
+      try { m = JSON.parse(e.data); } catch { return; }
+      if (m.t !== 'region') return;
+      if (typeof m.x === 'number' && typeof m.y === 'number' && typeof m.w === 'number' && typeof m.h === 'number') {
+        setRegion({ x: m.x, y: m.y, w: m.w, h: m.h });
+      }
+    };
+    ch.addEventListener('message', onMsg);
+    return () => ch.removeEventListener('message', onMsg);
+  }, [isHost, channels.control]);
+
   // Client: telemetry polling.
   const lastBytes = useRef(0);
   const lastTs = useRef(0);
@@ -526,5 +581,5 @@ export function useWebRTC(
     return () => clearInterval(id);
   }, [connectionState, isHost]);
 
-  return { connectionState, isReady, error, remoteStream, stats, channels, relayInput, peerCount };
+  return { connectionState, isReady, error, remoteStream, stats, channels, relayInput, peerCount, region };
 }
