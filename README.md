@@ -6,10 +6,11 @@
 
   <p>
     <a href="#overview">Overview</a> &bull;
+    <a href="#use-cases">Use cases</a> &bull;
     <a href="#what-it-does">Features</a> &bull;
-    <a href="#honest-scope">Scope</a> &bull;
     <a href="#architecture">Architecture</a> &bull;
     <a href="#quickstart">Quickstart</a> &bull;
+    <a href="#development--testing">Development</a> &bull;
     <a href="#security">Security</a> &bull;
     <a href="#roadmap">Roadmap</a>
   </p>
@@ -34,6 +35,20 @@ performs OS-level input injection and display provisioning.
 
 <!-- A short demo GIF lives here once recorded — see docs/DEMO.md for the storyboard.
      ![Telecastt demo](assets/demo.gif) -->
+
+---
+
+## Use cases
+
+- **A second monitor, instantly.** Set a laptop beside your desktop, hit **Extend**, and the
+  desktop spills onto it — no cables, no dock.
+- **Reuse an old PC as a display.** Turn a spare machine into a dashboard, chat, or reference
+  screen for your main rig.
+- **Control from across the room.** Drive your desktop from a laptop on the couch — its own mouse
+  and keyboard included.
+- **Present without dongles.** Mirror your screen into any nearby computer's browser.
+- **Cross-OS by default.** A secondary is just a browser, so a Mac or Linux laptop can be a screen
+  for your Windows PC today (host companions for more OSes are on the roadmap).
 
 ---
 
@@ -105,6 +120,24 @@ for the full roadmap, plus [`docs/USE_CASES.md`](docs/USE_CASES.md) and
 - **Adaptation:** secondaries send quality requests over their control channel; the host caps
   each sender independently and fair-shares the total bitrate budget.
 
+### Project structure
+
+```
+telecastt/
+├── backend/            # Node signaling server + Windows host companion
+│   ├── server.js       #   Express + ws signaling, rate limiting, device APIs
+│   ├── lib/            #   room-registry (multi-peer), input-controller, idd-controller, ...
+│   └── test/           #   unit tests  (npm test)
+├── frontend/           # React + TypeScript + Vite web app (both host & client roles)
+│   └── src/
+│       ├── hooks/      #   useWebRTC (the mesh), usePointerCapture, useDisplayCapture, ...
+│       ├── components/ #   HostView, ClientView, VideoStage, ControlDock, ...
+│       └── lib/        #   peer-io, api, types, env
+├── scripts/            # Windows PowerShell helpers (virtual display, input, Bluetooth PAN)
+├── docs/               # roadmaps, optimization, use-case matrix, security audit, demo
+└── assets/             # brand logo
+```
+
 ---
 
 ## Quickstart
@@ -141,6 +174,34 @@ npm run dev        # served with --host so other devices can reach it
 > Tip: several browser APIs (screen capture, clipboard) require a secure context. On the LAN,
 > `localhost` is fine on the host; for secondaries, serve over HTTPS or use the host's IP as
 > allowed by your browser. TLS-by-default is on the roadmap.
+
+---
+
+## Development & testing
+
+Requirements: **Node 18+** (20 recommended). Install per package.
+
+**Backend**
+```bash
+cd backend
+npm install
+npm test      # unit tests: binary protocol, rate limiter, room registry, input sanitizer
+npm start     # signaling server + host companion (port 3001)
+```
+
+**Frontend**
+```bash
+cd frontend
+npm install
+npm run dev        # dev server (Vite, --host so other devices can reach it)
+npm run build      # production build
+npx tsc --noEmit   # type-check
+npm run lint       # oxlint
+```
+
+Everything above passes clean. The backend tests run **cross-platform** — OS input injection
+degrades gracefully when it can't spawn (e.g. off Windows), so you can develop and test the app
+on any OS; only the actual OS-level injection needs a Windows host.
 
 ---
 
