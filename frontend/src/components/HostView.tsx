@@ -8,6 +8,7 @@ interface HostViewProps {
   roomId: string;
   localIp: string;
   isReady: boolean;
+  peerCount: number;
   connectionState: ConnectionState;
   onSettingsChange: (settings: StreamSettings) => void;
   onDisconnect: () => void;
@@ -21,6 +22,7 @@ export default function HostView({
   roomId,
   localIp,
   isReady,
+  peerCount,
   connectionState,
   onSettingsChange,
   onDisconnect,
@@ -34,7 +36,11 @@ export default function HostView({
   }, [fps, bitrate, resolution, onSettingsChange]);
 
   const status = isReady
-    ? { text: 'Connected', cls: 'ok', Icon: Wifi }
+    ? {
+        text: peerCount > 1 ? `Connected · ${peerCount} screens` : 'Connected',
+        cls: 'ok',
+        Icon: Wifi,
+      }
     : connectionState === 'reconnecting'
       ? { text: 'Reconnecting…', cls: 'warn', Icon: Activity }
       : { text: 'Waiting for a device…', cls: 'warn', Icon: WifiOff };

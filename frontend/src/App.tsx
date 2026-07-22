@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWebRTC } from './hooks/useWebRTC';
 import { useDisplayCapture } from './hooks/useDisplayCapture';
 import { usePointerCapture } from './hooks/usePointerCapture';
-import { useHostInputRelay } from './hooks/useHostInputRelay';
 import { useClipboardSync } from './hooks/useClipboardSync';
 import { useBatteryAware } from './hooks/useBatteryAware';
 import { useWakeLock } from './hooks/useWakeLock';
@@ -30,7 +29,7 @@ export default function App() {
   const isHost = mode === 'host';
 
   const { localStream, startCapture, stopCapture } = useDisplayCapture();
-  const { connectionState, isReady, error, remoteStream, stats, channels, relayInput } = useWebRTC(
+  const { connectionState, isReady, error, remoteStream, stats, channels, peerCount } = useWebRTC(
     roomId,
     isHost,
     localStream,
@@ -61,9 +60,12 @@ export default function App() {
     [channels.control]
   );
 
+  // Client sends its input over the control channel; the host relays each
+  // secondary's input to the injector internally (see useWebRTC). Clipboard sync
+  // on the client is symmetric; the host fans clipboard out to all secondaries
+  // internally.
   usePointerCapture(containerRef, clientLive, sendInput);
-  useHostInputRelay(channels.control, relayInput, isHost);
-  useClipboardSync(channels.clipboard, mode !== 'landing');
+  useClipboardSync(channels.clipboard, mode === 'client');
 
   const { togglePiP, isSupported: pipSupported } = usePictureInPicture(videoRef);
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen();
@@ -161,6 +163,7 @@ export default function App() {
         roomId={roomId}
         localIp={localIp}
         isReady={isReady}
+        peerCount={peerCount}
         connectionState={connectionState}
         onSettingsChange={setSettings}
         onDisconnect={handleDisconnect}
