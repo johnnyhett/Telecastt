@@ -348,8 +348,36 @@ verifiable increments rather than a 40-file rewrite. The PC-to-PC path:
 4. **Continuity across PCs (Pillar V).** File/folder transfer + rich clipboard over the data
    channel — the cross-machine "AirDrop-equivalent," PC-to-PC first.
 
-Already shipped in this branch as groundwork: a fix so clicking the on-screen control dock no
-longer injects a phantom click onto the host (it now ignores events from `[data-tc-ui]` UI).
+### Progress log (this branch)
+
+Shipped and verified (backend suite 16/16 green; frontend `tsc` + `oxlint` clean):
+
+- ✅ **Multi-peer signaling core** — `backend/lib/room-registry.js`: a WebSocket-agnostic,
+  unit-tested (`test/room-registry.test.js`, 10 tests) room/peer manager supporting one host
+  → N clients with per-peer **addressed** routing (`data.to` / `from`), replacing the hard
+  2-peer broadcast model. `server.js` refactored onto it; cap raised to a configurable
+  `MAX_PEERS_PER_ROOM` (default 8).
+- ✅ **Host authentication** — the host now proves itself with the room token on join;
+  reconnecting hosts evict their own stale socket instead of being locked out.
+- ✅ **Codec preferences** — host prefers AV1 → HEVC → VP9 for screen content (bitrate win).
+- ✅ **Input dock bug fix** — clicking the floating control dock no longer injects a phantom
+  click onto the host (`[data-tc-ui]` events are ignored by the capture surface).
+- ✅ **Project hygiene** — added the missing MIT `LICENSE`; aligned `backend` license.
+- ✅ **Research** — `docs/OPTIMIZATION.md` (streaming/codec/latency), plus a use-case matrix
+  and security audit (in progress via analysis agents).
+
+**The next step — the host mesh connection layer.** The signaling now *supports* N secondary
+PCs, but `useWebRTC.ts` still manages a single `RTCPeerConnection`. To make 2+ secondaries
+truly light up, the host must hold a `Map<peerId, RTCPeerConnection>`, offer to each secondary
+(addressed via `to`, answered via `from`), and tear down per-peer on `peer-left`. Design is in
+`docs/OPTIMIZATION.md §1` (full-mesh recommended for the LAN-first, distinct-region case).
+This change is deliberately **not** shipped blind: rewriting the real-time connection layer
+needs validation on a real two-or-more-PC setup, so it is the next increment to build *with*
+that test in hand — not a change to push untested and risk the working single-peer demo.
+
+Paired with it: **extended-display regions** — each secondary is assigned a rectangle of the
+(virtual) desktop and crops to it client-side; true OS-level extension across machines still
+requires N virtual displays on the host via the IDD Companion (Windows), as documented.
 
 ---
 
