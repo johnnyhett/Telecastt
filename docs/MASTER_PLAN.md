@@ -367,25 +367,33 @@ Shipped and verified (backend suite 16/16 green; frontend `tsc` + `oxlint` clean
 - ✅ **Codec preferences** — host prefers AV1 → HEVC → VP9 for screen content (bitrate win).
 - ✅ **Input dock bug fix** — clicking the floating control dock no longer injects a phantom
   click onto the host (`[data-tc-ui]` events are ignored by the capture surface).
-- ✅ **Project hygiene** — added the missing MIT `LICENSE`; aligned `backend` license.
-- ✅ **Research** — `docs/OPTIMIZATION.md` (streaming/codec/latency), plus a use-case matrix
-  and security audit (in progress via analysis agents).
+- ✅ **Extended-display regions** — opt-in **Mirror / Extend** toggle. In Extend, the host
+  auto-tiles the desktop into vertical columns by join order, delivers each secondary its region
+  over the control channel (re-tiling on join/leave), the secondary crops its video to that
+  region, and its input is remapped into the region so control lands correctly. Default Mirror,
+  so the single-screen path is untouched.
+- ✅ **Adaptive quality (VI.1/VI.4/VI.6)** — client senses battery + network (RTT/jitter/fps
+  with hysteresis) → requests degrade/restore → host applies **per-secondary** and **fair-shares**
+  the bitrate budget across screens with a floor.
+- ✅ **Low-latency input (I.1/III.4)** — unreliable/unordered `cursor` lane for pointer moves
+  (no head-of-line blocking) with sequence de-staleing; rAF-paced + coalesced sending; live RTT
+  readout in telemetry.
+- ✅ **Security hardening** — host-only injection, WS rate-limiting, token-gated device
+  endpoints, no API caching in the service worker.
+- ✅ **Reliability** — held keys/buttons/touches released on disconnect; per-peer teardown.
+- ✅ **Codec preferences** — host prefers AV1 → HEVC → VP9 for screen content.
+- ✅ **Project hygiene** — MIT `LICENSE`; honest README that matches the code; `docs/DEMO.md`.
+- ✅ **Research** — `docs/OPTIMIZATION.md`, `docs/OPTIMIZATION_777.md`, `docs/USE_CASES.md`,
+  `docs/SECURITY_AUDIT.md`.
 
-**The next step — extended-display regions.** With the mesh in place, every secondary now
-receives the host stream and (today) shows the whole surface — i.e. a mirror wall. To make it a
-true *extended* wall where each secondary shows a **different region**, the host assigns each
-peer a rectangle of the (virtual) desktop and the secondary crops to it client-side; the
-decorative `SpatialConfigurator` gets wired to drive those assignments, and per-region input
-coordinate mapping populates the injector's `monitor` index. True OS-level extension across
-machines still requires N virtual displays on the host via the IDD Companion (Windows), as
-documented in `docs/OPTIMIZATION.md §5`.
+**Validation note.** All of the above compiles and lints clean (frontend `tsc` + `oxlint`;
+backend 17/17), and per-peer logic is the exact N=1 slice of the browser-tested single path —
+but the **2+ secondary behavior itself should be validated on a real multi-PC setup**. That's
+the highest-value thing to test next.
 
-**Validation note.** The mesh compiles and lints clean, and its per-peer logic is identical to
-the (browser-tested) single-secondary path — but the 2+ secondary behavior itself should be
-validated on a real multi-PC setup. That's the highest-value thing to test next.
-
-Also queued from the audit/use-case docs: TLS/`wss://` by default, an explicit host-approval
-step before a secondary can control, longer room codes, and file transfer.
+**Still queued** (from the audit/use-case docs and the 777): TLS/`wss://` by default, TURN for
+cross-NAT, host-approval consent before a secondary can control, longer room codes, grid tiling
++ drag-to-arrange layouts, file transfer, and motion-to-photon instrumentation.
 
 ---
 
