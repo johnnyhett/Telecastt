@@ -9,8 +9,6 @@ interface HostViewProps {
   localIp: string;
   isReady: boolean;
   peerCount: number;
-  extend: boolean;
-  onToggleExtend: (v: boolean) => void;
   connectionState: ConnectionState;
   onSettingsChange: (settings: StreamSettings) => void;
   onDisconnect: () => void;
@@ -25,8 +23,6 @@ export default function HostView({
   localIp,
   isReady,
   peerCount,
-  extend,
-  onToggleExtend,
   connectionState,
   onSettingsChange,
   onDisconnect,
@@ -93,33 +89,6 @@ export default function HostView({
             <Monitor size={18} />
             <h3>Stream Configuration</h3>
           </header>
-
-          <div className="field">
-            <span className="field-label">Display mode</span>
-            <div className="seg">
-              <button
-                className={`seg-btn${!extend ? ' is-active' : ''}`}
-                onClick={() => onToggleExtend(false)}
-                type="button"
-              >
-                Mirror
-              </button>
-              <button
-                className={`seg-btn${extend ? ' is-active' : ''}`}
-                onClick={() => onToggleExtend(true)}
-                type="button"
-              >
-                Extend
-              </button>
-            </div>
-            {extend && (
-              <p className="vdd-card-note">
-                {peerCount > 1
-                  ? `Desktop tiled across ${peerCount} screens.`
-                  : 'Add a second screen to tile the desktop.'}
-              </p>
-            )}
-          </div>
 
           <label className="field">
             <span className="field-label">Resolution</span>

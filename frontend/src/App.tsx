@@ -25,7 +25,6 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [uiError, setUiError] = useState<string | null>(null);
   const [settings, setSettings] = useState<StreamSettings>({ fps: 60, bitrateMbps: 50, resolution: '4K' });
-  const [extend, setExtend] = useState(false);
 
   const isHost = mode === 'host';
 
@@ -35,8 +34,7 @@ export default function App() {
     isHost,
     localStream,
     isHost ? settings : null,
-    hostToken,
-    extend
+    hostToken
   );
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -62,13 +60,16 @@ export default function App() {
     if (mode !== 'client') { setNetLow(false); return; }
     const rtt = Number(stats.rttMs) || 0;
     const jit = Number(stats.jitterMs) || 0;
-    const fps = stats.fps;
+    // Only degrade on genuinely severe links — WebRTC's own congestion control
+    // already scales bitrate to fit the pipe, so capping the ceiling too eagerly
+    // just makes good/decent links look worse. Conservative thresholds + wide
+    // hysteresis keep the cap out of the way unless the link is truly bad.
     setNetLow((prev) =>
       prev
-        ? !(rtt < 90 && jit < 25 && (fps === 0 || fps > 40)) // recover only when healthy
-        : rtt > 160 || jit > 45 || (fps > 0 && fps < 20)      // degrade when clearly poor
+        ? !(rtt < 220 && jit < 60)     // recover once the link is usable again
+        : rtt > 450 || jit > 130       // degrade only when it's genuinely severe
     );
-  }, [mode, stats.rttMs, stats.jitterMs, stats.fps]);
+  }, [mode, stats.rttMs, stats.jitterMs]);
 
   // Ask the host to degrade this secondary's stream on low battery OR poor
   // network; restore to 'auto' when both are healthy again.
@@ -218,8 +219,6 @@ export default function App() {
         localIp={localIp}
         isReady={isReady}
         peerCount={peerCount}
-        extend={extend}
-        onToggleExtend={setExtend}
         connectionState={connectionState}
         onSettingsChange={setSettings}
         onDisconnect={handleDisconnect}
