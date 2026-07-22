@@ -26,9 +26,13 @@ function Get-VDDDevice {
 }
 
 function Get-VDDStatus {
-    $driverExists = (Test-Path "C:\Telecastt-VDD\IddSampleDriver.inf") -or (Test-Path "C:\Telecastt-VDD\option.txt")
+    # Truthful: "Installed" means the actual driver .inf was downloaded/extracted,
+    # NOT merely that option.txt exists (that file is written before the download,
+    # so keying off it falsely reported "installed"). "Present" means Windows
+    # actually enumerated a virtual display device.
+    $driverExists = Test-Path "C:\Telecastt-VDD\IddSampleDriver.inf"
     $device = Get-VDDDevice
-    
+
     return [PSCustomObject]@{
         Installed = [bool]$driverExists
         Present = [bool]($device -ne $null)
