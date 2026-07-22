@@ -123,7 +123,7 @@ export default function App() {
   // secondary's input to the injector internally (see useWebRTC). Clipboard sync
   // on the client is symmetric; the host fans clipboard out to all secondaries
   // internally.
-  usePointerCapture(containerRef, clientLive, sendInput);
+  usePointerCapture(containerRef, clientLive, sendInput, videoRef);
   useClipboardSync(channels.clipboard, mode === 'client');
 
   const { togglePiP, isSupported: pipSupported } = usePictureInPicture(videoRef);

@@ -134,17 +134,19 @@ console.log('--- STARTING ROOM REGISTRY TEST SUITE ---');
   console.log('OK  Test 7: relay targeted delivery & guards');
 })();
 
-// 8. canInject reflects live membership.
+// 8. canInject reflects live membership and does NOT time out mid-session.
 (function testCanInject() {
   const reg = new RoomRegistry();
   const { roomId } = reg.createRoom(1000);
   const p = mkPeer();
   reg.join(roomId, p, {}, 1000);
-  assert.strictEqual(reg.canInject(p, 1000), true, 'joined peer may inject');
-  assert.strictEqual(reg.canInject(p, 1000 + reg.ttlMs + 1), false, 'expired room blocks injection');
+  assert.strictEqual(reg.canInject(p), true, 'joined peer may inject');
+  // An occupied room is never reaped, so control does not silently die past TTL.
+  assert.deepStrictEqual(reg.sweep(1000 + reg.ttlMs + 1), [], 'occupied room not reaped past TTL');
+  assert.strictEqual(reg.canInject(p), true, 'still injectable in a live room past TTL');
   reg.leave(p);
-  assert.strictEqual(reg.canInject(p, 1000), false, 'departed peer may not inject');
-  console.log('OK  Test 8: canInject membership gate');
+  assert.strictEqual(reg.canInject(p), false, 'departed peer may not inject');
+  console.log('OK  Test 8: canInject membership gate (no mid-session timeout)');
 })();
 
 // 9. Leave: room persists with survivors, is deleted when empty; host flag.

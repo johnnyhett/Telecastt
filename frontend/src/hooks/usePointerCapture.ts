@@ -15,7 +15,8 @@ import type { InputMessage, PointerKind } from '../lib/types';
 export function usePointerCapture<T extends HTMLElement>(
   targetRef: RefObject<T | null>,
   enabled: boolean,
-  send: (msg: InputMessage) => void
+  send: (msg: InputMessage) => void,
+  videoRef?: RefObject<HTMLVideoElement | null>
 ) {
   useEffect(() => {
     const el = targetRef.current;
@@ -33,10 +34,34 @@ export function usePointerCapture<T extends HTMLElement>(
     const fromUi = (e: Event) =>
       e.target instanceof Element && e.target.closest('[data-tc-ui]') !== null;
 
+    // Map a screen point to 0..1 within the actual VIDEO CONTENT rectangle. The
+    // video renders with `object-fit: contain`, so when the host's aspect ratio
+    // differs from this device's (e.g. 16:9 desktop on a 16:10 laptop) the frame
+    // is letterboxed with black bars. Normalizing against the whole element would
+    // offset/scale every coordinate — the remote cursor drifts and clicks miss.
+    // We back out the letterbox using the video's intrinsic size.
     const normalize = (clientX: number, clientY: number) => {
-      const r = el.getBoundingClientRect();
-      const x = r.width ? (clientX - r.left) / r.width : 0;
-      const y = r.height ? (clientY - r.top) / r.height : 0;
+      const v = videoRef?.current;
+      const rect = (v ?? el).getBoundingClientRect();
+      let contentW = rect.width;
+      let contentH = rect.height;
+      let offX = 0;
+      let offY = 0;
+      if (v && v.videoWidth > 0 && v.videoHeight > 0 && rect.width > 0 && rect.height > 0) {
+        const vAspect = v.videoWidth / v.videoHeight;
+        const elAspect = rect.width / rect.height;
+        if (vAspect > elAspect) {
+          // Letterbox top/bottom: content spans full width.
+          contentH = rect.width / vAspect;
+          offY = (rect.height - contentH) / 2;
+        } else {
+          // Pillarbox left/right: content spans full height.
+          contentW = rect.height * vAspect;
+          offX = (rect.width - contentW) / 2;
+        }
+      }
+      const x = contentW ? (clientX - rect.left - offX) / contentW : 0;
+      const y = contentH ? (clientY - rect.top - offY) / contentH : 0;
       return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
     };
 
@@ -106,5 +131,5 @@ export function usePointerCapture<T extends HTMLElement>(
       el.removeEventListener('keyup', onKeyUp);
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [targetRef, enabled, send]);
+  }, [targetRef, enabled, send, videoRef]);
 }

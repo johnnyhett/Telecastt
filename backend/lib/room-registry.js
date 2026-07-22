@@ -134,6 +134,8 @@ class RoomRegistry {
     room.peers.set(id, peer);
     if (peer.role === 'host') room.hostId = id;
     if (room.peers.size >= 2) room.status = 'connected';
+    // Renew the lease on activity so a live session is never reaped mid-use.
+    room.expiresAt = now + this.ttlMs;
 
     return { ok: true, code: 200, peerId: id, role: peer.role, room, evicted };
   }
@@ -175,10 +177,14 @@ class RoomRegistry {
     return { ok: true, count };
   }
 
-  /** True if `peer` may inject input: still a member of a live, unexpired room. */
-  canInject(peer, now = Date.now()) {
+  /**
+   * True if `peer` may inject input: still a member of a room that still exists.
+   * Membership is the gate — an occupied room is never reaped (see `sweep`), so
+   * this no longer times out and silently kills control mid-session.
+   */
+  canInject(peer) {
     const room = peer && peer._roomId ? this.rooms.get(peer._roomId) : null;
-    return Boolean(room) && room.peers.has(peer.id) && now <= room.expiresAt;
+    return Boolean(room) && room.peers.has(peer.id);
   }
 
   /**
@@ -212,11 +218,15 @@ class RoomRegistry {
     return { room, removed: false, wasHost };
   }
 
-  /** Reap expired rooms and long-idle empty rooms. Returns removed room ids. */
+  /**
+   * Reap only EMPTY rooms — expired, or idle past the grace window. A room with
+   * connected peers is never reaped, so a long live session isn't torn out from
+   * under the users (the lease is also renewed on each join).
+   */
   sweep(now = Date.now()) {
     const removed = [];
     for (const [id, room] of this.rooms.entries()) {
-      if (now > room.expiresAt || (room.peers.size === 0 && now - room.createdAt > this.idleMs)) {
+      if (room.peers.size === 0 && (now > room.expiresAt || now - room.createdAt > this.idleMs)) {
         this.rooms.delete(id);
         removed.push(id);
       }

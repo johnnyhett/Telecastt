@@ -26,43 +26,28 @@ export interface UseWebRTCResult {
 
 const MAX_RETRIES = 5;
 
-// Prefer modern screen-content codecs (AV1 → HEVC → VP9) over H.264/VP8 when
-// both peers support them. AV1's screen-content-coding tools dramatically cut
-// the bitrate needed for mostly-static desktop content, freeing headroom for
-// higher resolution and refresh. Reordering is safe: negotiation still falls
-// back to any codec the peers have in common.
-const CODEC_PREFERENCE = ['video/AV1', 'video/H265', 'video/VP9', 'video/VP8', 'video/H264'];
+// Target encode height for each Resolution preset. Capture is native (often 4K);
+// we scale the ENCODE down to the chosen height so "1080p" genuinely lightens
+// the encoder instead of pinning 4K. (We intentionally do NOT force a codec
+// order — pinning AV1 first pushed hosts without AV1 hardware into slow software
+// 4K encoding, which looked terrible. Let the browser pick a codec it can
+// hardware-accelerate.)
+const RES_HEIGHT: Record<string, number> = { '1080p': 1080, '1440p': 1440, '4K': 2160 };
 
-function applyVideoCodecPreferences(pc: RTCPeerConnection) {
-  const caps =
-    typeof RTCRtpSender !== 'undefined' && RTCRtpSender.getCapabilities
-      ? RTCRtpSender.getCapabilities('video')
-      : null;
-  if (!caps || !caps.codecs.length) return;
-
-  const rank = (mime: string) => {
-    const i = CODEC_PREFERENCE.indexOf(mime);
-    return i === -1 ? CODEC_PREFERENCE.length : i;
-  };
-  const ordered = [...caps.codecs].sort((a, b) => rank(a.mimeType) - rank(b.mimeType));
-
-  for (const t of pc.getTransceivers()) {
-    if (t.sender.track?.kind === 'video' && typeof t.setCodecPreferences === 'function') {
-      try { t.setCodecPreferences(ordered); } catch { /* codec preferences unsupported */ }
-    }
-  }
-}
-
-// Cap a single peer's video encoder (bitrate + framerate). Applied globally from
-// the host's Stream Configuration UI, and per-secondary in response to a
-// client's quality request (see the 'q' control message).
-function setEncoderCaps(pc: RTCPeerConnection, bitrateMbps: number, fps: number) {
+// Cap a single peer's video encoder: bitrate, framerate, and (via
+// scaleResolutionDownBy) the encoded resolution. Applied globally from the
+// host's Stream Configuration UI and per-secondary on a quality request.
+function setEncoderCaps(pc: RTCPeerConnection, bitrateMbps: number, fps: number, maxHeight?: number) {
   const sender = pc.getSenders().find((x) => x.track?.kind === 'video');
   if (!sender) return;
   const params = sender.getParameters();
   if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
   params.encodings[0].maxBitrate = bitrateMbps * 1_000_000;
   params.encodings[0].maxFramerate = fps;
+  if (maxHeight) {
+    const h = sender.track?.getSettings?.().height;
+    params.encodings[0].scaleResolutionDownBy = h && h > maxHeight ? h / maxHeight : 1;
+  }
   sender.setParameters(params).catch(() => { /* ignore */ });
 }
 
@@ -169,11 +154,12 @@ export function useWebRTC(
     if (!s) return;
     const n = peersRef.current.size || 1;
     const fairShare = Math.max(BANDWIDTH_FLOOR_MBPS, s.bitrateMbps / n);
+    const maxHeight = RES_HEIGHT[s.resolution] || 2160;
     peersRef.current.forEach((entry) => {
       if (entry.level === 'low') {
-        setEncoderCaps(entry.pc, Math.min(DEGRADED_BITRATE_MBPS, fairShare), DEGRADED_FPS);
+        setEncoderCaps(entry.pc, Math.min(DEGRADED_BITRATE_MBPS, fairShare), DEGRADED_FPS, Math.min(maxHeight, 720));
       } else {
-        setEncoderCaps(entry.pc, fairShare, s.fps);
+        setEncoderCaps(entry.pc, fairShare, s.fps, maxHeight);
       }
     });
   }, []);
@@ -201,7 +187,6 @@ export function useWebRTC(
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceCandidatePoolSize: 4 });
     const stream = localStreamRef.current;
     if (stream) stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-    applyVideoCodecPreferences(pc);
 
     const control = pc.createDataChannel('control', { ordered: true });
     const clipboard = pc.createDataChannel('clipboard', { ordered: true });
@@ -361,6 +346,15 @@ export function useWebRTC(
 
         case 'offer': {
           if (isHostRef.current || !data.offer) break;
+          // If the host reconnected as a NEW peer, or our connection is dead,
+          // rebuild it — otherwise we'd apply the offer to a stale/closed pc and
+          // the client would be stuck until a manual refresh.
+          const stale =
+            (data.from && hostIdRef.current && data.from !== hostIdRef.current) ||
+            !clientPcRef.current ||
+            clientPcRef.current.connectionState === 'failed' ||
+            clientPcRef.current.connectionState === 'closed';
+          if (stale) createClientPeer();
           const pc = clientPcRef.current;
           if (!pc) break;
           if (data.from) hostIdRef.current = data.from;
