@@ -168,24 +168,21 @@ while ($true) {
     try {
         $cmd = $line | ConvertFrom-Json
 
-        # Calculate absolute pixel position from normalized 0.0-1.0 coords
+        # Map normalized 0..1 coords to absolute pixels. A specific monitor index
+        # maps to that screen; otherwise default to the PRIMARY monitor — the
+        # surface a host normally shares — instead of stretching across the whole
+        # multi-monitor virtual desktop. Without this, a click on a two-monitor
+        # host lands on the wrong screen (it "does nothing" where you clicked).
         $bounds = [System.Windows.Forms.Screen]::AllScreens
-        
-        $totalLeft   = [System.Windows.Forms.SystemInformation]::VirtualScreen.Left
-        $totalTop    = [System.Windows.Forms.SystemInformation]::VirtualScreen.Top
-        $totalWidth  = [System.Windows.Forms.SystemInformation]::VirtualScreen.Width
-        $totalHeight = [System.Windows.Forms.SystemInformation]::VirtualScreen.Height
-
         $targetIdx = if ($cmd.monitor -ne $null) { [int]$cmd.monitor } else { -1 }
-        
+
         if ($targetIdx -ge 0 -and $targetIdx -lt $bounds.Count) {
-            $mon = $bounds[$targetIdx]
-            $absX = $mon.Bounds.Left + [math]::Round($cmd.nx * $mon.Bounds.Width)
-            $absY = $mon.Bounds.Top  + [math]::Round($cmd.ny * $mon.Bounds.Height)
+            $mon = $bounds[$targetIdx].Bounds
         } else {
-            $absX = $totalLeft + [math]::Round($cmd.nx * $totalWidth)
-            $absY = $totalTop  + [math]::Round($cmd.ny * $totalHeight)
+            $mon = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
         }
+        $absX = $mon.Left + [math]::Round($cmd.nx * $mon.Width)
+        $absY = $mon.Top  + [math]::Round($cmd.ny * $mon.Height)
 
         switch ($cmd.action) {
             'touch' {
