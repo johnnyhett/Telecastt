@@ -1,7 +1,6 @@
 const express = require('express');
 const http = require('http');
 const { WebSocketServer } = require('ws');
-const crypto = require('crypto');
 const cors = require('cors');
 const os = require('os');
 const { execFile } = require('child_process');
@@ -80,35 +79,18 @@ const wss = new WebSocketServer({
   verifyClient: (info) => isTrustedOrigin(info.origin)
 });
 
-/**
- * Room Object Structure:
- * {
- *   id: string,
- *   createdAt: number,
- *   expiresAt: number,
- *   status: 'waiting' | 'connected' | 'closed',
- *   clients: Set<WebSocket>,
- *   hostToken: string
- * }
- */
-const rooms = new Map();
-const ROOM_TTL_MS = 30 * 60 * 1000; // 30 minute room TTL
-const MAX_ROOMS = 500;              // Hard cap to bound memory / abuse
+const { RoomRegistry } = require('./lib/room-registry');
 
-function generateRoomCode() {
-  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Ambiguity-free charset (32 chars)
-  let code = '';
-  const randomValues = new Uint8Array(6);
-  crypto.webcrypto.getRandomValues(randomValues);
-  for (let i = 0; i < 6; i++) {
-    code += charset[randomValues[i] % charset.length]; // 256 % 32 === 0 → no modulo bias
-  }
-  return code;
-}
-
-function generateSecureToken() {
-  return crypto.randomBytes(16).toString('hex');
-}
+// A session is one **host** PC plus up to (MAX_PEERS_PER_ROOM - 1) **secondary**
+// PCs, each secondary acting as an extended-display surface. The registry owns
+// room lifecycle, host authentication and signaling routing (see
+// lib/room-registry.js), and is unit-tested in isolation.
+const MAX_PEERS_PER_ROOM = Number(process.env.MAX_PEERS_PER_ROOM) || 8;
+const registry = new RoomRegistry({
+  ttlMs: 30 * 60 * 1000, // 30 minute room TTL
+  maxRooms: 500,         // hard cap to bound memory / abuse
+  maxPeersPerRoom: MAX_PEERS_PER_ROOM,
+});
 
 // Network Interfaces API — prefer Wi-Fi/Ethernet over virtual adapters
 app.get('/api/network-info', asyncHandler((req, res) => {
@@ -157,53 +139,41 @@ app.get('/api/network-info', asyncHandler((req, res) => {
 
 // Official Room Creation Endpoint
 app.get('/api/create-room', asyncHandler((req, res) => {
-  if (rooms.size >= MAX_ROOMS) {
+  const result = registry.createRoom();
+  if (result.error === 'capacity') {
     return res.status(503).json({ error: 'Server at capacity. Please try again shortly.' });
   }
-
-  const roomId = generateRoomCode();
-  const hostToken = generateSecureToken();
-  const now = Date.now();
-
-  const room = {
-    id: roomId,
-    createdAt: now,
-    expiresAt: now + ROOM_TTL_MS,
-    status: 'waiting',
-    clients: new Set(),
-    hostToken
-  };
-
-  rooms.set(roomId, room);
-  res.json({ roomId, hostToken, expiresAt: room.expiresAt });
+  res.json(result); // { roomId, hostToken, expiresAt }
 }));
 
 // Room Validation Endpoint
 app.get('/api/validate-room/:roomId', asyncHandler((req, res) => {
-  const { roomId } = req.params;
-  const upperCode = (roomId || '').toUpperCase();
-  const room = rooms.get(upperCode);
-
-  if (!room) {
-    return res.status(404).json({ valid: false, message: 'Room code does not exist.' });
+  const result = registry.validateRoom(req.params.roomId);
+  if (!result.valid) {
+    return res.status(result.code).json({ valid: false, message: result.message });
   }
-
-  if (Date.now() > room.expiresAt) {
-    rooms.delete(upperCode);
-    return res.status(410).json({ valid: false, message: 'Room code has expired.' });
-  }
-
-  if (room.clients.size >= 2) {
-    return res.status(409).json({ valid: false, message: 'Room is already full.' });
-  }
-
-  res.json({ valid: true, status: room.status, clientCount: room.clients.size });
+  res.json({ valid: true, status: result.status, clientCount: result.peerCount });
 }));
 
 // --- Controllers ---
 const iddController = require('./lib/idd-controller');
 const bluetoothController = require('./lib/bluetooth-controller');
 const inputController = require('./lib/input-controller');
+
+// Device-control endpoints (virtual display, Bluetooth) perform privileged —
+// even UAC-elevated — actions. Require the caller to present a live room's host
+// token so the request is authenticated as coming from the genuine host. This
+// blocks drive-by CSRF and unauthenticated LAN clients; the CORS allow-list
+// only strips response headers, it does not stop the request from executing.
+function requireHostToken(req, res, next) {
+  const token = req.get('X-Telecastt-Host-Token') || (req.query && req.query.hostToken);
+  if (!registry.isHostToken(token)) {
+    return res.status(403).json({ success: false, error: 'Host authentication required.' });
+  }
+  next();
+}
+app.use('/api/vdd', requireHostToken);
+app.use('/api/bluetooth', requireHostToken);
 
 // --- Virtual Display Driver (VDD) Control APIs ---
 app.get('/api/vdd/status', asyncHandler(async (req, res) => {
@@ -295,11 +265,26 @@ app.use((err, req, res, _next) => {
 });
 
 // WebSocket Signaling Server
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   ws.isAlive = true;
   ws.on('error', console.error);
   ws.on('pong', () => { ws.isAlive = true; });
-  let currentRoomId = null;
+
+  const clientIp = (req && req.socket && req.socket.remoteAddress) || 'unknown';
+  // Bounds raw WebSocket flooding while comfortably allowing bursty pointer
+  // input (~100+/s). Independent of the per-IP HTTP limiter above.
+  const msgLimiter = new RateLimiter(300, 500);
+
+  // Registry-facing peer adapter — a thin object the registry addresses via
+  // `send()` without knowing anything about WebSockets. The registry stamps it
+  // with `.id`, `.role` and `._roomId` on a successful join.
+  const peer = {
+    send(obj) {
+      if (ws.readyState === ws.OPEN) {
+        try { ws.send(JSON.stringify(obj)); } catch { /* guard against send errors */ }
+      }
+    },
+  };
 
   ws.on('message', (message) => {
     let data;
@@ -310,71 +295,52 @@ wss.on('connection', (ws) => {
       return;
     }
     if (!data || typeof data.type !== 'string') return;
+    if (!msgLimiter.consume(1)) return; // drop floods
 
     try {
       if (data.type === 'join') {
-        const { roomId } = data;
-        const upperRoomId = (roomId || '').toUpperCase();
-
-        // Strict Validation: Room MUST be officially created via API
-        if (!rooms.has(upperRoomId)) {
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Room code does not exist. Please check the code or initialize a new host session.'
-          }));
+        // Throttle join attempts per IP to blunt room-code brute forcing.
+        if (!getRateLimiter(clientIp).consume(1)) {
+          peer.send({ type: 'error', message: 'Too many attempts. Please slow down.' });
+          return;
+        }
+        const result = registry.join(data.roomId, peer, { role: data.role, hostToken: data.hostToken });
+        if (!result.ok) {
+          peer.send({ type: 'error', message: result.message });
           return;
         }
 
-        const room = rooms.get(upperRoomId);
-
-        if (Date.now() > room.expiresAt) {
-          rooms.delete(upperRoomId);
-          ws.send(JSON.stringify({ type: 'error', message: 'Room session has expired.' }));
-          return;
-        }
-
-        if (room.clients.size >= 2) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Room capacity reached (max 2 peers).' }));
-          return;
-        }
-
-        room.clients.add(ws);
-        currentRoomId = upperRoomId;
-
-        // Update room status
-        if (room.clients.size === 2) {
-          room.status = 'connected';
-          room.clients.forEach(client => {
-            try {
-              if (client.readyState === client.OPEN) {
-                client.send(JSON.stringify({ type: 'ready', status: 'connected' }));
-              }
-            } catch { /* guard against send errors */ }
-          });
+        const room = result.room;
+        // Tell the newcomer who it is and who is already present.
+        peer.send({
+          type: 'joined',
+          peerId: result.peerId,
+          role: result.role,
+          peers: registry.othersOf(room, peer).map((p) => ({ id: p.id, role: p.role })),
+        });
+        // Announce the newcomer to the peers already in the room.
+        registry.othersOf(room, peer).forEach((p) => {
+          p.send({ type: 'peer-joined', peerId: result.peerId, role: result.role });
+        });
+        // Legacy 2-peer handshake: the original client kicks off the WebRTC
+        // offer/answer once a second peer is present.
+        if (room.peers.size === 2) {
+          registry.peersOf(room).forEach((p) => p.send({ type: 'ready', status: 'connected' }));
         }
       }
-      else if (['offer', 'answer', 'ice-candidate'].includes(data.type)) {
-        if (currentRoomId && rooms.has(currentRoomId)) {
-          const room = rooms.get(currentRoomId);
-          // Only relay between members of the room this socket actually joined.
-          if (!room.clients.has(ws)) return;
-          room.clients.forEach(client => {
-            try {
-              if (client !== ws && client.readyState === client.OPEN) {
-                client.send(JSON.stringify(data));
-              }
-            } catch { /* guard against send errors */ }
-          });
-        }
+      // Signaling relay — targeted (data.to) or broadcast to the room, stamped
+      // with the sender's id so a host can tell which secondary PC replied.
+      else if (data.type === 'offer' || data.type === 'answer' || data.type === 'ice-candidate') {
+        registry.relay(peer, data);
       }
-      // Input injection via WebSocket. Only accepted from a socket that has
-      // legitimately joined a valid, non-expired room — this is the auth gate
-      // that stops arbitrary sockets from driving the host's mouse/keyboard.
+      // Input injection via WebSocket. Legitimate client input arrives P2P over
+      // the host's control data channel and is relayed by the host, so only the
+      // authenticated **host** peer should ever drive OS input over the
+      // signaling socket. Client peers are rejected here even if joined.
       else if (data.type === 'input-inject') {
-        if (!currentRoomId || !rooms.has(currentRoomId)) return;
-        const room = rooms.get(currentRoomId);
-        if (!room.clients.has(ws) || Date.now() > room.expiresAt) return;
-        inputController.injectInput(data.payload);
+        if (peer.role === 'host' && registry.canInject(peer)) {
+          inputController.injectInput(data.payload);
+        }
       }
     } catch (e) {
       console.error('Error handling signaling message:', e.message);
@@ -382,38 +348,22 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    if (currentRoomId && rooms.has(currentRoomId)) {
-      const room = rooms.get(currentRoomId);
-      room.clients.delete(ws);
-
-      if (room.clients.size === 0) {
-        rooms.delete(currentRoomId);
-      } else {
-        room.status = 'waiting';
-        room.clients.forEach(client => {
-          try {
-            if (client.readyState === client.OPEN) {
-              client.send(JSON.stringify({ type: 'peer-disconnected' }));
-            }
-          } catch { /* guard against send errors */ }
-        });
-      }
+    const { room, removed } = registry.leave(peer);
+    if (room && !removed) {
+      registry.peersOf(room).forEach((p) => {
+        p.send({ type: 'peer-disconnected' });
+        p.send({ type: 'peer-left', peerId: peer.id });
+      });
     }
   });
 });
 
 // Periodic Sweeper: Keep-alive ping & Expired Room Cleanup
 const pingInterval = setInterval(() => {
-  const now = Date.now();
+  // Reap expired / long-idle empty rooms.
+  registry.sweep();
 
-  // Clean expired rooms
-  for (const [roomId, room] of rooms.entries()) {
-    if (now > room.expiresAt || (room.clients.size === 0 && now - room.createdAt > 5 * 60 * 1000)) {
-      rooms.delete(roomId);
-    }
-  }
-
-  // Ping clients
+  // Ping clients; terminate the unresponsive.
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) return ws.terminate();
     ws.isAlive = false;

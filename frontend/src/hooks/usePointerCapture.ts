@@ -2,15 +2,15 @@ import { useEffect } from 'react';
 import type { RefObject } from 'react';
 import type { InputMessage, PointerKind } from '../lib/types';
 
-// Cap pointer-move traffic to ~100/s. Reliable data channels don't like being
-// flooded, and the host can't act on more than a display refresh anyway.
-const MOVE_INTERVAL_MS = 10;
-
 /**
  * Captures pointer (mouse/touch/pen), wheel and keyboard input on `targetRef`
  * and forwards it as normalized `InputMessage`s. Uses the Pointer Events API so
  * one code path handles mouse, multi-touch and pen with stable ids and clean
  * down/move/up phases.
+ *
+ * Events originating inside an element flagged `[data-tc-ui]` (the floating
+ * control dock or any overlay) are ignored — otherwise clicking a control would
+ * also inject a phantom click onto the host at that spot.
  */
 export function usePointerCapture<T extends HTMLElement>(
   targetRef: RefObject<T | null>,
@@ -21,7 +21,17 @@ export function usePointerCapture<T extends HTMLElement>(
     const el = targetRef.current;
     if (!enabled || !el) return;
 
-    let lastMove = 0;
+    // Pace moves to the display refresh: keep only the freshest position and
+    // flush once per animation frame, instead of a fixed-interval throttle.
+    let pendingMove: InputMessage | null = null;
+    let rafId = 0;
+    const flushMove = () => {
+      rafId = 0;
+      if (pendingMove) { send(pendingMove); pendingMove = null; }
+    };
+
+    const fromUi = (e: Event) =>
+      e.target instanceof Element && e.target.closest('[data-tc-ui]') !== null;
 
     const normalize = (clientX: number, clientY: number) => {
       const r = el.getBoundingClientRect();
@@ -34,6 +44,7 @@ export function usePointerCapture<T extends HTMLElement>(
       e.pointerType === 'touch' ? 'touch' : e.pointerType === 'pen' ? 'pen' : 'mouse';
 
     const onPointerDown = (e: PointerEvent) => {
+      if (fromUi(e)) return;
       el.focus();
       try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
       const { x, y } = normalize(e.clientX, e.clientY);
@@ -41,20 +52,24 @@ export function usePointerCapture<T extends HTMLElement>(
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      const now = performance.now();
-      if (now - lastMove < MOVE_INTERVAL_MS) return;
-      lastMove = now;
-      const { x, y } = normalize(e.clientX, e.clientY);
-      send({ t: 'p', phase: 'move', pt: kindOf(e), id: e.pointerId, x, y, button: e.button });
+      if (fromUi(e)) return;
+      // Use the freshest sample from the coalesced batch (high-Hz mice/pens).
+      const coalesced = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      const ev = coalesced.length ? coalesced[coalesced.length - 1] : e;
+      const { x, y } = normalize(ev.clientX, ev.clientY);
+      pendingMove = { t: 'p', phase: 'move', pt: kindOf(e), id: e.pointerId, x, y, button: e.button };
+      if (!rafId) rafId = requestAnimationFrame(flushMove);
     };
 
     const onPointerUp = (e: PointerEvent) => {
       try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+      if (fromUi(e)) return;
       const { x, y } = normalize(e.clientX, e.clientY);
       send({ t: 'p', phase: 'up', pt: kindOf(e), id: e.pointerId, x, y, button: e.button });
     };
 
     const onWheel = (e: WheelEvent) => {
+      if (fromUi(e)) return;
       e.preventDefault();
       send({ t: 'wheel', dy: e.deltaY });
     };
@@ -89,6 +104,7 @@ export function usePointerCapture<T extends HTMLElement>(
       el.removeEventListener('contextmenu', onContextMenu);
       el.removeEventListener('keydown', onKeyDown);
       el.removeEventListener('keyup', onKeyUp);
+      if (rafId) cancelAnimationFrame(rafId);
     };
   }, [targetRef, enabled, send]);
 }

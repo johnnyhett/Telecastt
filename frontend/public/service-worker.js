@@ -1,4 +1,4 @@
-const CACHE_NAME = 'telecastt-v1';
+const CACHE_NAME = 'telecastt-v2';
 const ASSETS = [
   '/',
   '/index.html',
@@ -22,13 +22,24 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
+  const req = event.request;
+  if (req.method !== 'GET') return;
+
+  const url = new URL(req.url);
+  // Never cache cross-origin requests or API calls: room-creation and
+  // validation responses carry live room codes, host tokens and session state
+  // that must never be served stale or replayed. Let them hit the network.
+  if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) {
+    return;
+  }
+
+  // Same-origin static shell: cache-first with background refresh.
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetched = fetch(event.request).then((response) => {
+    caches.match(req).then((cached) => {
+      const fetched = fetch(req).then((response) => {
         if (response.ok) {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
         }
         return response;
       }).catch(() => cached);
