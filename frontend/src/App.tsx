@@ -52,19 +52,36 @@ export default function App() {
     }
   }, [isHost, battery.shouldDegrade]);
 
+  // Network-sensing adaptation (777 VI.1): watch this client's live telemetry
+  // and, with hysteresis to avoid flapping, decide whether to ask for degraded
+  // quality — enter on clearly poor conditions, leave only when comfortably good.
+  const [netLow, setNetLow] = useState(false);
+  useEffect(() => {
+    if (mode !== 'client') { setNetLow(false); return; }
+    const rtt = Number(stats.rttMs) || 0;
+    const jit = Number(stats.jitterMs) || 0;
+    const fps = stats.fps;
+    setNetLow((prev) =>
+      prev
+        ? !(rtt < 90 && jit < 25 && (fps === 0 || fps > 40)) // recover only when healthy
+        : rtt > 160 || jit > 45 || (fps > 0 && fps < 20)      // degrade when clearly poor
+    );
+  }, [mode, stats.rttMs, stats.jitterMs, stats.fps]);
+
+  // Ask the host to degrade this secondary's stream on low battery OR poor
+  // network; restore to 'auto' when both are healthy again.
+  const wantLow = battery.shouldDegrade || netLow;
   useEffect(() => {
     if (mode !== 'client') return;
     const ch = channels.control;
     if (!ch) return;
     const req = () => {
-      try {
-        ch.send(JSON.stringify({ t: 'q', level: battery.shouldDegrade ? 'low' : 'auto' }));
-      } catch { /* channel not ready */ }
+      try { ch.send(JSON.stringify({ t: 'q', level: wantLow ? 'low' : 'auto' })); } catch { /* not ready */ }
     };
     if (ch.readyState === 'open') req();
     else ch.addEventListener('open', req, { once: true });
     return () => ch.removeEventListener('open', req);
-  }, [mode, channels.control, battery.shouldDegrade]);
+  }, [mode, channels.control, wantLow]);
 
   useWakeLock(clientLive);
 
