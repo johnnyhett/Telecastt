@@ -52,12 +52,23 @@ export default function App() {
 
   useWakeLock(clientLive);
 
+  const seqRef = useRef(0);
   const sendInput = useCallback(
     (msg: InputMessage) => {
+      // Pointer moves take the unreliable "cursor" lane (no head-of-line
+      // blocking under loss); a sequence number lets the host drop stale
+      // reorders. Everything else stays on the reliable control lane.
+      if (msg.t === 'p' && msg.phase === 'move' && msg.pt !== 'touch') {
+        const fast = channels.cursor;
+        if (fast && fast.readyState === 'open') {
+          fast.send(JSON.stringify({ ...msg, s: ++seqRef.current }));
+          return;
+        }
+      }
       const ch = channels.control;
       if (ch && ch.readyState === 'open') ch.send(JSON.stringify(msg));
     },
-    [channels.control]
+    [channels.control, channels.cursor]
   );
 
   // Client sends its input over the control channel; the host relays each

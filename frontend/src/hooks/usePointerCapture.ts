@@ -2,10 +2,6 @@ import { useEffect } from 'react';
 import type { RefObject } from 'react';
 import type { InputMessage, PointerKind } from '../lib/types';
 
-// Cap pointer-move traffic to ~100/s. Reliable data channels don't like being
-// flooded, and the host can't act on more than a display refresh anyway.
-const MOVE_INTERVAL_MS = 10;
-
 /**
  * Captures pointer (mouse/touch/pen), wheel and keyboard input on `targetRef`
  * and forwards it as normalized `InputMessage`s. Uses the Pointer Events API so
@@ -25,7 +21,14 @@ export function usePointerCapture<T extends HTMLElement>(
     const el = targetRef.current;
     if (!enabled || !el) return;
 
-    let lastMove = 0;
+    // Pace moves to the display refresh: keep only the freshest position and
+    // flush once per animation frame, instead of a fixed-interval throttle.
+    let pendingMove: InputMessage | null = null;
+    let rafId = 0;
+    const flushMove = () => {
+      rafId = 0;
+      if (pendingMove) { send(pendingMove); pendingMove = null; }
+    };
 
     const fromUi = (e: Event) =>
       e.target instanceof Element && e.target.closest('[data-tc-ui]') !== null;
@@ -50,11 +53,12 @@ export function usePointerCapture<T extends HTMLElement>(
 
     const onPointerMove = (e: PointerEvent) => {
       if (fromUi(e)) return;
-      const now = performance.now();
-      if (now - lastMove < MOVE_INTERVAL_MS) return;
-      lastMove = now;
-      const { x, y } = normalize(e.clientX, e.clientY);
-      send({ t: 'p', phase: 'move', pt: kindOf(e), id: e.pointerId, x, y, button: e.button });
+      // Use the freshest sample from the coalesced batch (high-Hz mice/pens).
+      const coalesced = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      const ev = coalesced.length ? coalesced[coalesced.length - 1] : e;
+      const { x, y } = normalize(ev.clientX, ev.clientY);
+      pendingMove = { t: 'p', phase: 'move', pt: kindOf(e), id: e.pointerId, x, y, button: e.button };
+      if (!rafId) rafId = requestAnimationFrame(flushMove);
     };
 
     const onPointerUp = (e: PointerEvent) => {
@@ -100,6 +104,7 @@ export function usePointerCapture<T extends HTMLElement>(
       el.removeEventListener('contextmenu', onContextMenu);
       el.removeEventListener('keydown', onKeyDown);
       el.removeEventListener('keyup', onKeyUp);
+      if (rafId) cancelAnimationFrame(rafId);
     };
   }, [targetRef, enabled, send]);
 }

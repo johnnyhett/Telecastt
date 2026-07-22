@@ -6,6 +6,7 @@ import { attachHostInput, attachClipboardReceiver } from '../lib/peer-io';
 export interface RtcChannels {
   control: RTCDataChannel | null;
   clipboard: RTCDataChannel | null;
+  cursor: RTCDataChannel | null;
 }
 
 export interface UseWebRTCResult {
@@ -53,6 +54,7 @@ interface HostPeer {
   pc: RTCPeerConnection;
   control: RTCDataChannel;
   clipboard: RTCDataChannel;
+  cursor: RTCDataChannel;
   pending: RTCIceCandidateInit[];
   dispose: () => void;
 }
@@ -80,8 +82,8 @@ export function useWebRTC(
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const [channels, setChannels] = useState<RtcChannels>({ control: null, clipboard: null });
-  const [stats, setStats] = useState<TelemetryStats>({ fps: 0, bitrateMbps: '0.00', jitterMs: '0.0' });
+  const [channels, setChannels] = useState<RtcChannels>({ control: null, clipboard: null, cursor: null });
+  const [stats, setStats] = useState<TelemetryStats>({ fps: 0, bitrateMbps: '0.00', jitterMs: '0.0', rttMs: '0' });
   const [peerCount, setPeerCount] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -155,12 +157,19 @@ export function useWebRTC(
 
     const control = pc.createDataChannel('control', { ordered: true });
     const clipboard = pc.createDataChannel('clipboard', { ordered: true });
+    // Unreliable, unordered lane for high-frequency pointer moves — avoids the
+    // head-of-line blocking a reliable channel suffers under packet loss.
+    const cursor = pc.createDataChannel('cursor', { ordered: false, maxRetransmits: 0 });
     const disposeInput = attachHostInput(control, relayInput);
+    const disposeCursor = attachHostInput(cursor, relayInput, { dropStale: true });
     const disposeClip = attachClipboardReceiver(clipboard);
 
     const entry: HostPeer = {
-      pc, control, clipboard, pending: [],
-      dispose: () => { disposeInput(); disposeClip(); try { pc.close(); } catch { /* ignore */ } },
+      pc, control, clipboard, cursor, pending: [],
+      dispose: () => {
+        disposeInput(); disposeCursor(); disposeClip();
+        try { pc.close(); } catch { /* ignore */ }
+      },
     };
     peersRef.current.set(peerId, entry);
 
@@ -192,7 +201,7 @@ export function useWebRTC(
   const createClientPeer = useCallback(() => {
     if (clientPcRef.current) { try { clientPcRef.current.close(); } catch { /* ignore */ } }
     clientPending.current = [];
-    setChannels({ control: null, clipboard: null });
+    setChannels({ control: null, clipboard: null, cursor: null });
 
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceCandidatePoolSize: 4 });
     const incoming = new MediaStream();
@@ -200,7 +209,8 @@ export function useWebRTC(
 
     pc.ondatachannel = (event) => {
       const ch = event.channel;
-      setChannels((prev) => ({ ...prev, [ch.label === 'clipboard' ? 'clipboard' : 'control']: ch }));
+      const key = ch.label === 'clipboard' ? 'clipboard' : ch.label === 'cursor' ? 'cursor' : 'control';
+      setChannels((prev) => ({ ...prev, [key]: ch }));
     };
 
     pc.ontrack = (event) => {
@@ -391,7 +401,7 @@ export function useWebRTC(
       peers.clear();
       const cpc = clientPcRef.current;
       if (cpc) { try { cpc.close(); } catch { /* ignore */ } clientPcRef.current = null; }
-      setChannels({ control: null, clipboard: null });
+      setChannels({ control: null, clipboard: null, cursor: null });
       setRemoteStream(null);
       setConnectionState('idle');
       setPeerCount(0);
@@ -443,13 +453,15 @@ export function useWebRTC(
       if (!pc) return;
       try {
         const report = await pc.getStats();
-        let fps = 0; let bytes = 0; let jbDelay = 0; let jbCount = 1;
+        let fps = 0; let bytes = 0; let jbDelay = 0; let jbCount = 1; let rtt = 0;
         report.forEach((r) => {
           if (r.type === 'inbound-rtp' && r.kind === 'video') {
             fps = r.framesPerSecond || 0;
             bytes = r.bytesReceived || 0;
             jbDelay = r.jitterBufferDelay || 0;
             jbCount = r.jitterBufferEmittedCount || 1;
+          } else if (r.type === 'candidate-pair' && r.nominated && typeof r.currentRoundTripTime === 'number') {
+            rtt = r.currentRoundTripTime; // seconds
           }
         });
         const now = performance.now();
@@ -460,7 +472,12 @@ export function useWebRTC(
         }
         lastBytes.current = bytes;
         lastTs.current = now;
-        setStats({ fps, bitrateMbps: bitrate, jitterMs: ((jbDelay / jbCount) * 1000).toFixed(1) });
+        setStats({
+          fps,
+          bitrateMbps: bitrate,
+          jitterMs: ((jbDelay / jbCount) * 1000).toFixed(1),
+          rttMs: (rtt * 1000).toFixed(0),
+        });
       } catch { /* stats unavailable */ }
     }, 1000);
     return () => clearInterval(id);

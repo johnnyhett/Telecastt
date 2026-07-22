@@ -28,6 +28,13 @@ export default function Telemetry({ stats }: TelemetryProps) {
           <small> ms</small>
         </span>
       </div>
+      <div className="telemetry-item">
+        <span className="telemetry-label">Latency</span>
+        <span className="telemetry-value" style={{ color: Number(stats.rttMs) < 40 ? 'var(--emerald)' : 'var(--rose)' }}>
+          {stats.rttMs}
+          <small> ms</small>
+        </span>
+      </div>
     </div>
   );
 }

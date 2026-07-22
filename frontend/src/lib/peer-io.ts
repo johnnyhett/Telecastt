@@ -28,13 +28,15 @@ export function toInject(msg: InputMessage): InjectPayload | null {
  */
 export function attachHostInput(
   channel: RTCDataChannel,
-  relayInput: (payload: unknown) => void
+  relayInput: (payload: unknown) => void,
+  opts: { dropStale?: boolean } = {}
 ): () => void {
   const heldKeys = new Set<string>();
   const heldButtons = new Set<number>();
   const heldTouches = new Map<number, { x: number; y: number }>();
   let lastX = 0.5;
   let lastY = 0.5;
+  let lastSeq = -1;
 
   const track = (msg: InputMessage) => {
     if (msg.t === 'key') {
@@ -70,6 +72,12 @@ export function attachHostInput(
   const onMessage = (e: MessageEvent) => {
     let msg: InputMessage;
     try { msg = JSON.parse(e.data); } catch { return; }
+    // On the unreliable cursor lane, packets can arrive out of order — drop a
+    // move whose sequence is older than one we've already applied (last wins).
+    if (opts.dropStale && msg.t === 'p' && msg.phase === 'move' && typeof msg.s === 'number') {
+      if (msg.s <= lastSeq) return;
+      lastSeq = msg.s;
+    }
     track(msg);
     const payload = toInject(msg);
     if (payload) relayInput(payload);
