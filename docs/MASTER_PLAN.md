@@ -353,10 +353,15 @@ verifiable increments rather than a 40-file rewrite. The PC-to-PC path:
 Shipped and verified (backend suite 16/16 green; frontend `tsc` + `oxlint` clean):
 
 - ✅ **Multi-peer signaling core** — `backend/lib/room-registry.js`: a WebSocket-agnostic,
-  unit-tested (`test/room-registry.test.js`, 10 tests) room/peer manager supporting one host
+  unit-tested (`test/room-registry.test.js`, 11 tests) room/peer manager supporting one host
   → N clients with per-peer **addressed** routing (`data.to` / `from`), replacing the hard
   2-peer broadcast model. `server.js` refactored onto it; cap raised to a configurable
   `MAX_PEERS_PER_ROOM` (default 8).
+- ✅ **Host mesh (frontend)** — `useWebRTC.ts` now manages a `Map<peerId, RTCPeerConnection>`,
+  one connection per secondary PC: offers addressed per peer, routes answers/ICE by `from`,
+  tears down per-peer on `peer-left` (one secondary leaving no longer disturbs the others).
+  Per-secondary input relay + clipboard via `lib/peer-io.ts`; `HostView` shows the live
+  connected-secondary count. The single-secondary case is the exact N=1 slice.
 - ✅ **Host authentication** — the host now proves itself with the room token on join;
   reconnecting hosts evict their own stale socket instead of being locked out.
 - ✅ **Codec preferences** — host prefers AV1 → HEVC → VP9 for screen content (bitrate win).
@@ -366,18 +371,21 @@ Shipped and verified (backend suite 16/16 green; frontend `tsc` + `oxlint` clean
 - ✅ **Research** — `docs/OPTIMIZATION.md` (streaming/codec/latency), plus a use-case matrix
   and security audit (in progress via analysis agents).
 
-**The next step — the host mesh connection layer.** The signaling now *supports* N secondary
-PCs, but `useWebRTC.ts` still manages a single `RTCPeerConnection`. To make 2+ secondaries
-truly light up, the host must hold a `Map<peerId, RTCPeerConnection>`, offer to each secondary
-(addressed via `to`, answered via `from`), and tear down per-peer on `peer-left`. Design is in
-`docs/OPTIMIZATION.md §1` (full-mesh recommended for the LAN-first, distinct-region case).
-This change is deliberately **not** shipped blind: rewriting the real-time connection layer
-needs validation on a real two-or-more-PC setup, so it is the next increment to build *with*
-that test in hand — not a change to push untested and risk the working single-peer demo.
+**The next step — extended-display regions.** With the mesh in place, every secondary now
+receives the host stream and (today) shows the whole surface — i.e. a mirror wall. To make it a
+true *extended* wall where each secondary shows a **different region**, the host assigns each
+peer a rectangle of the (virtual) desktop and the secondary crops to it client-side; the
+decorative `SpatialConfigurator` gets wired to drive those assignments, and per-region input
+coordinate mapping populates the injector's `monitor` index. True OS-level extension across
+machines still requires N virtual displays on the host via the IDD Companion (Windows), as
+documented in `docs/OPTIMIZATION.md §5`.
 
-Paired with it: **extended-display regions** — each secondary is assigned a rectangle of the
-(virtual) desktop and crops to it client-side; true OS-level extension across machines still
-requires N virtual displays on the host via the IDD Companion (Windows), as documented.
+**Validation note.** The mesh compiles and lints clean, and its per-peer logic is identical to
+the (browser-tested) single-secondary path — but the 2+ secondary behavior itself should be
+validated on a real multi-PC setup. That's the highest-value thing to test next.
+
+Also queued from the audit/use-case docs: TLS/`wss://` by default, an explicit host-approval
+step before a secondary can control, longer room codes, and file transfer.
 
 ---
 
