@@ -19,6 +19,33 @@ export interface UseWebRTCResult {
 
 const MAX_RETRIES = 5;
 
+// Prefer modern screen-content codecs (AV1 → HEVC → VP9) over H.264/VP8 when
+// both peers support them. AV1's screen-content-coding tools dramatically cut
+// the bitrate needed for mostly-static desktop content, freeing headroom for
+// higher resolution and refresh. Reordering is safe: negotiation still falls
+// back to any codec the peers have in common.
+const CODEC_PREFERENCE = ['video/AV1', 'video/H265', 'video/VP9', 'video/VP8', 'video/H264'];
+
+function applyVideoCodecPreferences(pc: RTCPeerConnection) {
+  const caps =
+    typeof RTCRtpSender !== 'undefined' && RTCRtpSender.getCapabilities
+      ? RTCRtpSender.getCapabilities('video')
+      : null;
+  if (!caps || !caps.codecs.length) return;
+
+  const rank = (mime: string) => {
+    const i = CODEC_PREFERENCE.indexOf(mime);
+    return i === -1 ? CODEC_PREFERENCE.length : i;
+  };
+  const ordered = [...caps.codecs].sort((a, b) => rank(a.mimeType) - rank(b.mimeType));
+
+  for (const t of pc.getTransceivers()) {
+    if (t.sender.track?.kind === 'video' && typeof t.setCodecPreferences === 'function') {
+      try { t.setCodecPreferences(ordered); } catch { /* codec preferences unsupported */ }
+    }
+  }
+}
+
 /**
  * Owns the entire peer session: signaling socket, RTCPeerConnection, data
  * channels, remote media, reconnection and (client-side) telemetry. Host and
@@ -82,6 +109,7 @@ export function useWebRTC(
     if (isHostRef.current) {
       const stream = localStreamRef.current;
       if (stream) stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      applyVideoCodecPreferences(pc);
       // Reliable, ordered channels: input and clipboard must never be dropped.
       const control = pc.createDataChannel('control', { ordered: true });
       const clipboard = pc.createDataChannel('clipboard', { ordered: true });
@@ -297,6 +325,7 @@ export function useWebRTC(
       if (existing) existing.replaceTrack(track).catch(() => {});
       else { pc.addTrack(track, localStream); added = true; }
     });
+    if (added) applyVideoCodecPreferences(pc);
     if (added && isReady) {
       pc.createOffer()
         .then((o) => pc.setLocalDescription(o))
