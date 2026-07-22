@@ -67,12 +67,15 @@ function setEncoderCaps(pc: RTCPeerConnection, bitrateMbps: number, fps: number)
 // quality (low battery, constrained link).
 const DEGRADED_BITRATE_MBPS = 8;
 const DEGRADED_FPS = 30;
+// A single secondary is never squeezed below this, however many are connected.
+const BANDWIDTH_FLOOR_MBPS = 4;
 
 interface HostPeer {
   pc: RTCPeerConnection;
   control: RTCDataChannel;
   clipboard: RTCDataChannel;
   cursor: RTCDataChannel;
+  level: 'auto' | 'low';
   pending: RTCIceCandidateInit[];
   dispose: () => void;
 }
@@ -151,9 +154,21 @@ export function useWebRTC(
     setConnectionState(peersRef.current.size === 0 ? 'connecting' : connected > 0 ? 'connected' : 'connecting');
   }, []);
 
-  const applySettingsTo = useCallback((pc: RTCPeerConnection) => {
+  // Fair-share the host's configured bitrate across all connected secondaries,
+  // re-dividing as they join/leave, honoring each peer's degrade level. Keeps
+  // the host uplink from being oversubscribed by N screens.
+  const redistributeBandwidth = useCallback(() => {
     const s = settingsRef.current;
-    if (s) setEncoderCaps(pc, s.bitrateMbps, s.fps);
+    if (!s) return;
+    const n = peersRef.current.size || 1;
+    const fairShare = Math.max(BANDWIDTH_FLOOR_MBPS, s.bitrateMbps / n);
+    peersRef.current.forEach((entry) => {
+      if (entry.level === 'low') {
+        setEncoderCaps(entry.pc, Math.min(DEGRADED_BITRATE_MBPS, fairShare), DEGRADED_FPS);
+      } else {
+        setEncoderCaps(entry.pc, fairShare, s.fps);
+      }
+    });
   }, []);
 
   // ---- Host: create (or replace) a connection to one secondary PC ----
@@ -177,17 +192,20 @@ export function useWebRTC(
 
     // A secondary can ask the host to adapt *its* encoder (low battery / weak
     // link). Each secondary has its own sender, so this is per-peer.
+    // A secondary can ask the host to adapt *its* stream (low battery / weak
+    // link). Record the level and re-share bandwidth across all secondaries.
     const onQuality = (e: MessageEvent) => {
       let m: { t?: string; level?: string };
       try { m = JSON.parse(e.data); } catch { return; }
       if (!m || m.t !== 'q') return;
-      if (m.level === 'low') setEncoderCaps(pc, DEGRADED_BITRATE_MBPS, DEGRADED_FPS);
-      else applySettingsTo(pc); // 'auto' → back to the host's configured settings
+      const self = peersRef.current.get(peerId);
+      if (self) self.level = m.level === 'low' ? 'low' : 'auto';
+      redistributeBandwidth();
     };
     control.addEventListener('message', onQuality);
 
     const entry: HostPeer = {
-      pc, control, clipboard, cursor, pending: [],
+      pc, control, clipboard, cursor, level: 'auto', pending: [],
       dispose: () => {
         disposeInput(); disposeCursor(); disposeClip();
         control.removeEventListener('message', onQuality);
@@ -200,7 +218,7 @@ export function useWebRTC(
       if (e.candidate) sendSignal({ type: 'ice-candidate', to: peerId, candidate: e.candidate });
     };
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'connected') applySettingsTo(pc);
+      if (pc.connectionState === 'connected') redistributeBandwidth();
       refreshHostState();
     };
 
@@ -209,16 +227,18 @@ export function useWebRTC(
       .then(() => sendSignal({ type: 'offer', to: peerId, offer: pc.localDescription }))
       .catch(() => { /* ignore */ });
 
+    redistributeBandwidth();
     refreshHostState();
-  }, [relayInput, sendSignal, applySettingsTo, refreshHostState]);
+  }, [relayInput, sendSignal, redistributeBandwidth, refreshHostState]);
 
   const removeHostPeer = useCallback((peerId: string) => {
     const entry = peersRef.current.get(peerId);
     if (!entry) return;
     entry.dispose();
     peersRef.current.delete(peerId);
+    redistributeBandwidth(); // remaining secondaries reclaim the freed budget
     refreshHostState();
-  }, [refreshHostState]);
+  }, [redistributeBandwidth, refreshHostState]);
 
   // ---- Client: single connection to the host ----
   const createClientPeer = useCallback(() => {
@@ -460,11 +480,11 @@ export function useWebRTC(
     });
   }, [localStream, isHost]);
 
-  // Host: apply bitrate/framerate caps to every secondary's video sender.
+  // Host: re-share the bitrate budget across secondaries when settings change.
   useEffect(() => {
     if (!isHost) return;
-    peersRef.current.forEach(({ pc }) => applySettingsTo(pc));
-  }, [streamSettings, isHost, applySettingsTo]);
+    redistributeBandwidth();
+  }, [streamSettings, isHost, redistributeBandwidth]);
 
   // Client: telemetry polling.
   const lastBytes = useRef(0);
