@@ -28,7 +28,8 @@ export function useWebRTC(
   roomId: string | null,
   isHost: boolean,
   localStream: MediaStream | null,
-  streamSettings: StreamSettings | null
+  streamSettings: StreamSettings | null,
+  hostToken: string | null = null
 ): UseWebRTCResult {
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
   const [isReady, setIsReady] = useState(false);
@@ -49,9 +50,11 @@ export function useWebRTC(
   const isHostRef = useRef(isHost);
   const localStreamRef = useRef(localStream);
   const roomIdRef = useRef(roomId);
+  const hostTokenRef = useRef(hostToken);
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
   useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
   useEffect(() => { roomIdRef.current = roomId; }, [roomId]);
+  useEffect(() => { hostTokenRef.current = hostToken; }, [hostToken]);
 
   const sendSignal = useCallback((msg: object) => {
     const ws = wsRef.current;
@@ -221,7 +224,13 @@ export function useWebRTC(
 
     ws.onopen = () => {
       retryCount.current = 0;
-      ws.send(JSON.stringify({ type: 'join', roomId: rid }));
+      // Authenticate the host by presenting its room token; clients join plain.
+      ws.send(JSON.stringify({
+        type: 'join',
+        roomId: rid,
+        role: isHostRef.current ? 'host' : 'client',
+        ...(isHostRef.current && hostTokenRef.current ? { hostToken: hostTokenRef.current } : {}),
+      }));
     };
 
     ws.onmessage = (ev) => {

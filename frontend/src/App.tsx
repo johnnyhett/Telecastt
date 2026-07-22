@@ -21,6 +21,7 @@ import ClientView from './components/ClientView';
 export default function App() {
   const [mode, setMode] = useState<AppMode>('landing');
   const [roomId, setRoomId] = useState<string | null>(null);
+  const [hostToken, setHostToken] = useState<string | null>(null);
   const [localIp, setLocalIp] = useState('localhost');
   const [busy, setBusy] = useState(false);
   const [uiError, setUiError] = useState<string | null>(null);
@@ -33,7 +34,8 @@ export default function App() {
     roomId,
     isHost,
     localStream,
-    isHost ? settings : null
+    isHost ? settings : null,
+    hostToken
   );
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -92,6 +94,7 @@ export default function App() {
       ]);
       setLocalIp(net?.localIp || window.location.hostname);
       setRoomId(room.roomId);
+      setHostToken(room.hostToken);
       setMode('host');
     } catch (e) {
       setUiError(e instanceof Error ? e.message : 'Could not start host session.');
@@ -123,6 +126,7 @@ export default function App() {
   const handleDisconnect = useCallback(() => {
     stopCapture();
     setRoomId(null);
+    setHostToken(null);
     setMode('landing');
     setUiError(null);
     if (window.location.search) {

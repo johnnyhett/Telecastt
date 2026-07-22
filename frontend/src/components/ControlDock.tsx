@@ -19,7 +19,7 @@ export default function ControlDock({
   onDisconnect,
 }: ControlDockProps) {
   return (
-    <div className="dock">
+    <div className="dock" data-tc-ui>
       {pipSupported && (
         <button className="dock-btn" onClick={onTogglePiP} title="Picture in Picture" type="button">
           <PictureInPicture size={18} />

@@ -1,9 +1,18 @@
-# Telecastt — Master Plan: From Web Prototype to Native App Store Product
+# Telecastt — Master Plan: A Web App on Steroids
 
 > _"Screens unchained."_ — This document is the honest, engineering-grade roadmap for
-> turning Telecastt from what it **is** today into what it **wants to be**: a native,
-> cross-ecosystem second-screen + remote-control + continuity product on the App Store
-> and Google Play.
+> turning Telecastt from what it **is** today into what it **wants to be**: the most
+> capable **web-based** cross-ecosystem second-screen + remote-control + continuity
+> product possible — installable as a PWA, no App Store gatekeepers, running on every
+> device that has a modern browser.
+>
+> **Direction (decided):** Web-first, **PC ↔ PC first**. The primary use case is two (or
+> more) **desktop/laptop computers** working as one — one PC's screen extended or mirrored
+> onto another, controlled with the second PC's own mouse and keyboard, with files and
+> clipboard flowing between them. Phones/tablets are a later nice-to-have, not the focus.
+> We are **not** shipping native store apps; we push the browser to its limits and package
+> as an installable PWA. The only non-browser piece is the tiny local **Host Companion**
+> server (already in `backend/`) that performs OS-level input injection on the host PC.
 >
 > **Status:** Planning. **Last updated:** 2026-07-22. **Owner:** @johnnyhett
 
@@ -28,10 +37,14 @@ line. So, precisely what exists **today**:
 
 **The single most important architectural truth:** the current product is a *browser
 capability shim*. Every "OS-level" feature is bounded by what a browser tab is allowed to
-do. To deliver the vision, the center of gravity must move from the browser to **two real
-native surfaces**: a **desktop Host Agent** (runs in the background, captures at the OS
-level, injects input at the OS level) and **native mobile clients** (real touch, real
-on-screen keyboard, real system integration, App Store distribution).
+do. The web-first bet is that a **modern browser is now enough** for the experience we
+want — WebRTC, Screen Capture, Pointer Events, the File System Access API, the async
+Clipboard, WebCodecs, Web Share, Wake Lock, and installable PWAs cover the overwhelming
+majority of the vision. The two things a browser genuinely cannot do — inject input into
+the host OS and provision a virtual display — stay in the **Host Companion** (the local
+`backend/` server), which is still just "run a small program on the PC you want to
+control." Client devices (iPad, phone, laptop) need **nothing installed** beyond opening a
+URL or adding the PWA to their home screen.
 
 ---
 
@@ -44,27 +57,31 @@ These are the walls. We build doors, not dents.
    as **our own** encrypted P2P transfer over the existing WebRTC data channel (+ optional
    local mDNS discovery), not by riding Apple's rails. We will match the *experience*, not
    the *mechanism*.
-2. **iOS is a sandbox.** An iOS/iPadOS app **cannot** silently drive another device, run
-   arbitrary background daemons, or reach into the filesystem freely. It can: capture touch,
-   present an on-screen keyboard, use the Files/Share sheet, ReplayKit for its own screen,
-   Multipeer Connectivity / Network.framework for local transport, and Universal Links. The
-   iPad is a superb **client/controller**; it is a constrained **host**.
+2. **The browser is a sandbox — and that's the whole game now.** A web client cannot read
+   the filesystem silently, run background daemons, or grab OS input. It **can**: capture
+   multi-touch and pen via Pointer Events, present our own on-screen keyboard, open files
+   via the File System Access API / file picker, read-write the clipboard (with a user
+   gesture), stream via WebRTC, and install as a full-screen PWA. Some APIs are Chromium-only
+   (File System Access); Safari/Firefox get graceful fallbacks (download + upload). We design
+   for the capability floor and progressively enhance.
 3. **WebRTC has a ceiling.** True 4K @ 120/144 Hz over WebRTC is bandwidth- and
    codec-bound. Realistic targets: **1080p60 effortlessly, 1440p60 on good LAN, 4K30–60 with
    hardware H.264/HEVC/AV1 and a strong link.** "4K144" is a marketing number, not a LAN
    guarantee. We negotiate capabilities and degrade gracefully instead of promising physics
    we can't deliver.
-4. **Apple review scrutinizes remote-control / screen-mirroring apps.** Expect entitlement
-   review, privacy-manifest requirements, and rejection risk for anything that looks like it
-   controls another user's device without consent. Design consent + provenance in from day one.
-5. **OS input injection is privileged everywhere.** Windows works via User32 (already done).
-   macOS requires **Accessibility** + (for capture) **Screen Recording** permissions and is
-   sandbox-hostile. Linux is split between **X11** (`XTest`) and **Wayland** (`libei`/portals).
-   Each is a separate real implementation, not a flag.
-6. **"Liquid Glass" (iOS 26) is a native material.** You get the real thing only in a native
-   SwiftUI app on iOS 26+. On web you can *approximate* it (backdrop-filter, layered blur,
-   specular highlights) but it will never be the system material. Honesty: native shell for
-   the real look; web stays a beautiful approximation.
+4. **No App Store means no gatekeeper — but also no store trust signals.** We win on
+   zero-install and instant updates; we must earn trust ourselves via HTTPS, a clear consent
+   model, and a visible "someone is controlling this PC" indicator on the host. Distribution
+   is a URL + "Add to Home Screen," not a review queue.
+5. **OS input injection is privileged everywhere.** This lives in the Host Companion, not the
+   browser. Windows works via User32 (already done). macOS requires **Accessibility** + (for
+   capture) **Screen Recording** permissions. Linux splits between **X11** (`XTest`) and
+   **Wayland** (`libei`/portals). Each host OS is a separate real implementation in the
+   companion, not a flag.
+6. **"Liquid Glass" (iOS 26) is a native material we can only *approximate* on web** — and
+   that approximation can be gorgeous. Layered `backdrop-filter`, specular edge highlights,
+   depth, and spring motion get us most of the way. We commit to a best-in-class web glass
+   system rather than pretending to be the OS material.
 
 ---
 
@@ -72,14 +89,13 @@ These are the walls. We build doors, not dents.
 
 ```
                         ┌───────────────────────────────────────────────┐
-                        │             DESKTOP HOST AGENT                 │
-                        │  (Windows / macOS / Linux — Rust core)         │
-                        │  • OS screen capture (DXGI / ScreenCaptureKit  │
-                        │    / PipeWire)                                 │
-                        │  • HW encode (NVENC / VideoToolbox / VAAPI)    │
+                        │        HOST COMPANION  (host PC only)          │
+                        │  Node core today → Windows / macOS / Linux     │
+                        │  • Serves the web app (host role)              │
+                        │  • Screen capture via browser getDisplayMedia  │
+                        │    (native capture optional, later)            │
                         │  • OS input injection (User32 / CGEvent / libei)│
                         │  • Virtual display, clipboard, file endpoints  │
-                        │  • Local mDNS advertise + secure pairing       │
                         └───────────────────┬───────────────────────────┘
                                             │  WebRTC (DTLS-SRTP) media + data
                           ┌─────────────────┼─────────────────┐
@@ -88,21 +104,26 @@ These are the walls. We build doors, not dents.
                           └─────────────────┼─────────────────┘
        ┌────────────────────────┬───────────┴───────────┬────────────────────────┐
    ┌───▼──────────┐   ┌─────────▼─────────┐   ┌──────────▼────────┐   ┌───────────▼─────┐
-   │ iOS / iPadOS │   │  Android (Kotlin  │   │  macOS / Windows  │   │  Web (PWA,      │
-   │  (SwiftUI)   │   │   + Compose)      │   │   desktop client  │   │  fallback)      │
-   │  real touch, │   │  real touch,      │   │  (Tauri/native)   │   │  no-install     │
-   │  Pencil, OSK │   │  Material You     │   │                   │   │  demo path      │
-   └──────────────┘   └───────────────────┘   └───────────────────┘   └─────────────────┘
+   │  iPad / iOS  │   │      Android      │   │  macOS / Windows  │   │   Smart TV /    │
+   │   (Safari    │   │   (Chrome PWA)    │   │   laptop browser  │   │   any browser   │
+   │    PWA)      │   │                   │   │                   │   │                 │
+   │  ONE web app — installable, no store, real touch + OSK, files, clipboard         │
+   └──────────────┴───────────────────────┴───────────────────────┴─────────────────┘
 ```
 
+Every client is the **same web app** — one codebase, installable as a PWA, zero store
+friction. The Host Companion is the only thing anyone installs, and only on the PC being
+controlled.
+
 **Key decisions (proposed, open for your approval):**
-- **Host Agent core in Rust** — one portable core, thin per-OS shims for capture/inject.
-  (Alternative: keep Node for orchestration, Rust/C++ only for the hot paths.)
-- **Keep WebRTC as the transport** — it already gives us DTLS-SRTP encryption, NAT
-  traversal, congestion control, and data channels for free. Add real **STUN + TURN**.
-- **A shared wire protocol** (`packages/protocol`) — versioned, typed messages for input,
-  clipboard, files, display, pairing — consumed by web, Swift (via codegen), and Kotlin.
-- **Native shells own the "OS-level" magic**; the web app remains the zero-install fallback.
+- **Keep WebRTC as the transport** — DTLS-SRTP encryption, NAT traversal, congestion
+  control, and data channels for free. Add real **STUN + TURN**.
+- **Installable PWA** — service worker, web app manifest, offline shell, home-screen install,
+  full-screen standalone display.
+- **A typed wire protocol** (`frontend/src/lib/protocol` or a shared package) — versioned
+  messages for input, clipboard, files, display, pairing. One source of truth for host + client.
+- **Progressive enhancement** — Chromium-only APIs (File System Access) enhance the
+  experience; Safari/Firefox get functional fallbacks so nothing hard-breaks.
 
 ---
 
@@ -236,26 +257,31 @@ _The "AirDrop-level" pillar — our own encrypted equivalent that actually cross
 
 ---
 
-### PILLAR VI — Native Shells & Store Launch
-_"An actual app on the App Store and Google Play." This is the productization pillar._
+### PILLAR VI — PWA & Web-Native Superpowers
+_"An actual app" — without a store. Make the web app installable, offline-capable, and as
+close to native as the browser allows._
 
-- **VI.1 — Protocol package.** Extract the wire protocol into `packages/protocol` with
-  codegen for TS + Swift + Kotlin. One source of truth for every client. 🟡
-- **VI.2 — iOS / iPadOS app (SwiftUI).** WebRTC (`libwebrtc`/`WebRTC.xcframework`), native
-  touch + Pencil, on-screen keyboard, Files/Share integration, background/PiP where allowed,
-  **iOS 26 Liquid Glass** materials. 🔴
-- **VI.3 — Android app (Kotlin + Compose).** WebRTC, Material You / Material 3 Expressive,
-  NSD discovery, Storage Access Framework for files, foreground-service transport. 🔴
-- **VI.4 — Desktop Host Agent app.** Package the Rust core as a signed installer
-  (Windows MSIX, macOS notarized `.pkg`, Linux AppImage/Flatpak); menubar/tray UX;
-  auto-start; auto-update. 🔴🔒
-- **VI.5 — Store compliance.** Privacy manifests (Apple), data-safety form (Google),
-  age rating, export-compliance (encryption), screenshots, listing copy, entitlements. 🔒
-- **VI.6 — Beta & release rails.** TestFlight + Play Internal Testing, staged rollout,
-  crash/ANR reporting, phased release with kill-switch. 🟡
-- **VI.7 — Submission & review.** Anticipate remote-control review scrutiny with a demo
-  account, consent walkthrough, and clear "you control your own devices" framing. Submit,
-  iterate on rejections, launch. 🔒🔴
+- **VI.1 — Typed protocol module.** Extract the wire protocol into one versioned, typed
+  module consumed by both host and client roles. One source of truth for input, clipboard,
+  files, display, pairing messages. 🟢
+- **VI.2 — Installable PWA.** Real web app manifest (icons, theme color, `display:
+  standalone`, orientation), upgrade the existing `service-worker.js` to a proper offline
+  app-shell + versioned cache, and an "Add to Home Screen" prompt. 🟢
+- **VI.3 — Deep web-platform integration.** File System Access API (open/save without
+  round-trips on Chromium), Web Share + Share Target, `EyeDropper`, Wake Lock (already
+  present), Screen Orientation lock, `navigator.clipboard` rich types, Badging API. Each with
+  a graceful fallback. 🟢🟡
+- **VI.4 — Host Companion packaging.** Turn `backend/` into a one-click installer per OS
+  (Windows service/tray, macOS `launchd` helper, Linux systemd) with auto-start and
+  self-update — so "run it on the PC you want to control" is frictionless. 🟡🔒
+- **VI.5 — HTTPS & trust.** Ship TLS by default (self-signed CA for LAN or an automated cert
+  flow) so Screen Capture, Clipboard, and PWA install all work — many of these APIs require a
+  secure context. 🔒
+- **VI.6 — Cross-browser matrix.** Verified support tiers for Chrome/Edge, Safari
+  (iOS/macOS), Firefox; feature-detect and degrade; a public compatibility table. 🟢
+- **VI.7 — Update & telemetry rails.** Versioned releases, in-app "update available" prompt
+  driven by the service worker, opt-in crash/usage telemetry, staged rollout via cache
+  versioning. 🟢
 
 ---
 
@@ -293,41 +319,50 @@ The pillars are parallel tracks; here's the honest critical path:
    rich clipboard — the "AirDrop-level" experience, browser-to-browser first).
 3. **Weeks 6–10 — Pillar III** (native Host Agent capture core in Rust) + **III.3**
    (capability negotiation for real resolution/refresh).
-4. **Weeks 8–14 — Pillar VI** native shells (iOS first — the iPad is the hero device),
-   built on the extracted protocol package.
+4. **Weeks 8–12 — Pillar VI** PWA hardening (installable, offline, HTTPS, deep web APIs) +
+   **VI.4** Host Companion one-click installers.
 5. **Continuous — Pillar VII** design system + stress testing woven through every phase.
 
-**Definition of done for "an app on the stores":** Pillar VI.7 green, which depends on
-II (secure transport), III (real capture), IV (cross-OS control), and VII.4/VII.6
-(accessibility + stress gates). Everything ladders to that.
+**Definition of done for "an app on steroids":** an installable PWA that works across the
+browser matrix (VI.2/VI.6), over the real internet (Pillar II), with cross-OS control
+(Pillar IV) and AirDrop-equivalent transfer (Pillar V), meeting the accessibility + stress
+gates (VII.4/VII.6). Everything ladders to that.
 
 ---
 
-## 5. The First Concrete Slice (proposed for immediate execution)
+## 5. The First Concrete Slice (PC ↔ PC)
 
-To respect this repo's "Plan First → approval → surgical execution" law, I'm **not** going
-to sprawl a 40-file rewrite in one turn. I propose starting with a tight, high-value,
-**ships-today-in-the-browser** slice that de-risks two of your seven asks:
+To respect this repo's "Plan First → approval → surgical execution" law, we advance in tight,
+verifiable increments rather than a 40-file rewrite. The PC-to-PC path:
 
-- **Touch-Mode auto-detection + on-screen keyboard + touch marks** (Pillar IV.1/IV.2) — so
-  an iPad controlling a PC feels like a tablet, not a mouse. Pure web, works on every OS now.
-- **Cross-OS file transfer over the WebRTC data channel** (Pillar V.1) — the first real
-  "AirDrop-level" capability, with chunking, progress, and integrity checks.
+1. **Multi-peer foundation (Pillar II.5).** Lift the hard 2-peer room cap into a real
+   topology: **one host PC → N client PCs**, with per-peer addressed signaling (each message
+   carries a target peer id instead of being broadcast to "the other one"). Backward-compatible
+   and fully unit-testable on the server before any UI change. _This is the first step and the
+   thing that makes "two or more PCs" literally true._
+2. **Host multi-connection UI.** The host command center shows every connected PC, each with
+   its own display mode (extend / duplicate / second-screen) and live telemetry.
+3. **PC control polish.** The second PC already drives the host with its own mouse + physical
+   keyboard today; harden cursor precision, multi-monitor coordinate mapping, and a relative
+   "trackpad" mode.
+4. **Continuity across PCs (Pillar V).** File/folder transfer + rich clipboard over the data
+   channel — the cross-machine "AirDrop-equivalent," PC-to-PC first.
 
-Both are additive, low-risk, fully testable, and directly visible. From there we climb the
-critical path above.
+Already shipped in this branch as groundwork: a fix so clicking the on-screen control dock no
+longer injects a phantom click onto the host (it now ignores events from `[data-tc-ui]` UI).
 
 ---
 
 ## 6. Open Decisions (need your call)
 
-1. **Host Agent language:** Rust core (recommended) vs. extend Node vs. C++?
-2. **First native platform:** iOS/iPadOS first (recommended — it's your hero use case) vs.
-   Android vs. desktop agent?
-3. **TURN hosting:** self-host `coturn` vs. managed (Twilio/Cloudflare) for launch?
-4. **Business/licensing:** stay MIT open-source, or dual-license for the store apps?
-5. **Scope of v1 launch:** "second screen + remote control" only, or include file transfer
-   in the first store release?
+1. **Host Companion evolution:** keep the current Node server and harden it (fastest), or
+   later rewrite the hot paths (capture/inject) in Rust for a real native host?
+2. **TURN hosting:** self-host `coturn` vs. managed (Twilio/Cloudflare) for internet use?
+3. **HTTPS-on-LAN strategy:** self-signed CA the user trusts once, an mkcert-style flow, or
+   tunnel through a hosted origin? (Several web APIs require a secure context.)
+4. **Licensing:** confirm MIT (add the missing `LICENSE`) or something else.
+5. **v1 "steroids" scope:** which capabilities make the first polished release — remote
+   control + touch, file transfer, rich clipboard, PWA install — all of it, or a subset?
 
 ---
 

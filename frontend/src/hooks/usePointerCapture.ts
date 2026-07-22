@@ -11,6 +11,10 @@ const MOVE_INTERVAL_MS = 10;
  * and forwards it as normalized `InputMessage`s. Uses the Pointer Events API so
  * one code path handles mouse, multi-touch and pen with stable ids and clean
  * down/move/up phases.
+ *
+ * Events originating inside an element flagged `[data-tc-ui]` (the floating
+ * control dock or any overlay) are ignored — otherwise clicking a control would
+ * also inject a phantom click onto the host at that spot.
  */
 export function usePointerCapture<T extends HTMLElement>(
   targetRef: RefObject<T | null>,
@@ -23,6 +27,9 @@ export function usePointerCapture<T extends HTMLElement>(
 
     let lastMove = 0;
 
+    const fromUi = (e: Event) =>
+      e.target instanceof Element && e.target.closest('[data-tc-ui]') !== null;
+
     const normalize = (clientX: number, clientY: number) => {
       const r = el.getBoundingClientRect();
       const x = r.width ? (clientX - r.left) / r.width : 0;
@@ -34,6 +41,7 @@ export function usePointerCapture<T extends HTMLElement>(
       e.pointerType === 'touch' ? 'touch' : e.pointerType === 'pen' ? 'pen' : 'mouse';
 
     const onPointerDown = (e: PointerEvent) => {
+      if (fromUi(e)) return;
       el.focus();
       try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
       const { x, y } = normalize(e.clientX, e.clientY);
@@ -41,6 +49,7 @@ export function usePointerCapture<T extends HTMLElement>(
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      if (fromUi(e)) return;
       const now = performance.now();
       if (now - lastMove < MOVE_INTERVAL_MS) return;
       lastMove = now;
@@ -50,11 +59,13 @@ export function usePointerCapture<T extends HTMLElement>(
 
     const onPointerUp = (e: PointerEvent) => {
       try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+      if (fromUi(e)) return;
       const { x, y } = normalize(e.clientX, e.clientY);
       send({ t: 'p', phase: 'up', pt: kindOf(e), id: e.pointerId, x, y, button: e.button });
     };
 
     const onWheel = (e: WheelEvent) => {
+      if (fromUi(e)) return;
       e.preventDefault();
       send({ t: 'wheel', dy: e.deltaY });
     };
