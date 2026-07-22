@@ -10,7 +10,7 @@ import { useWakeLock } from './hooks/useWakeLock';
 import { usePictureInPicture } from './hooks/usePictureInPicture';
 import { useFullscreen } from './hooks/useFullscreen';
 
-import { api } from './lib/api';
+import { api, setHostToken as setApiHostToken } from './lib/api';
 import { ROOM_CODE_PATTERN } from './lib/env';
 import type { AppMode, InputMessage, StreamSettings } from './lib/types';
 
@@ -95,6 +95,7 @@ export default function App() {
       setLocalIp(net?.localIp || window.location.hostname);
       setRoomId(room.roomId);
       setHostToken(room.hostToken);
+      setApiHostToken(room.hostToken);
       setMode('host');
     } catch (e) {
       setUiError(e instanceof Error ? e.message : 'Could not start host session.');
@@ -127,6 +128,7 @@ export default function App() {
     stopCapture();
     setRoomId(null);
     setHostToken(null);
+    setApiHostToken(null);
     setMode('landing');
     setUiError(null);
     if (window.location.search) {

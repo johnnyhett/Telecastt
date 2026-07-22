@@ -160,6 +160,21 @@ const iddController = require('./lib/idd-controller');
 const bluetoothController = require('./lib/bluetooth-controller');
 const inputController = require('./lib/input-controller');
 
+// Device-control endpoints (virtual display, Bluetooth) perform privileged —
+// even UAC-elevated — actions. Require the caller to present a live room's host
+// token so the request is authenticated as coming from the genuine host. This
+// blocks drive-by CSRF and unauthenticated LAN clients; the CORS allow-list
+// only strips response headers, it does not stop the request from executing.
+function requireHostToken(req, res, next) {
+  const token = req.get('X-Telecastt-Host-Token') || (req.query && req.query.hostToken);
+  if (!registry.isHostToken(token)) {
+    return res.status(403).json({ success: false, error: 'Host authentication required.' });
+  }
+  next();
+}
+app.use('/api/vdd', requireHostToken);
+app.use('/api/bluetooth', requireHostToken);
+
 // --- Virtual Display Driver (VDD) Control APIs ---
 app.get('/api/vdd/status', asyncHandler(async (req, res) => {
   const result = await iddController.getStatus();
@@ -250,10 +265,15 @@ app.use((err, req, res, _next) => {
 });
 
 // WebSocket Signaling Server
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   ws.isAlive = true;
   ws.on('error', console.error);
   ws.on('pong', () => { ws.isAlive = true; });
+
+  const clientIp = (req && req.socket && req.socket.remoteAddress) || 'unknown';
+  // Bounds raw WebSocket flooding while comfortably allowing bursty pointer
+  // input (~100+/s). Independent of the per-IP HTTP limiter above.
+  const msgLimiter = new RateLimiter(300, 500);
 
   // Registry-facing peer adapter — a thin object the registry addresses via
   // `send()` without knowing anything about WebSockets. The registry stamps it
@@ -275,9 +295,15 @@ wss.on('connection', (ws) => {
       return;
     }
     if (!data || typeof data.type !== 'string') return;
+    if (!msgLimiter.consume(1)) return; // drop floods
 
     try {
       if (data.type === 'join') {
+        // Throttle join attempts per IP to blunt room-code brute forcing.
+        if (!getRateLimiter(clientIp).consume(1)) {
+          peer.send({ type: 'error', message: 'Too many attempts. Please slow down.' });
+          return;
+        }
         const result = registry.join(data.roomId, peer, { role: data.role, hostToken: data.hostToken });
         if (!result.ok) {
           peer.send({ type: 'error', message: result.message });
@@ -307,11 +333,12 @@ wss.on('connection', (ws) => {
       else if (data.type === 'offer' || data.type === 'answer' || data.type === 'ice-candidate') {
         registry.relay(peer, data);
       }
-      // Input injection via WebSocket. Only accepted from a peer that has
-      // legitimately joined a live, non-expired room — the auth gate that stops
-      // arbitrary sockets from driving the host's mouse/keyboard.
+      // Input injection via WebSocket. Legitimate client input arrives P2P over
+      // the host's control data channel and is relayed by the host, so only the
+      // authenticated **host** peer should ever drive OS input over the
+      // signaling socket. Client peers are rejected here even if joined.
       else if (data.type === 'input-inject') {
-        if (registry.canInject(peer)) {
+        if (peer.role === 'host' && registry.canInject(peer)) {
           inputController.injectInput(data.payload);
         }
       }

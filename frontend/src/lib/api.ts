@@ -26,6 +26,17 @@ export class ApiError extends Error {
   }
 }
 
+// The host's room token authenticates privileged device-control endpoints
+// (virtual display, Bluetooth). Set once when a host session starts; cleared on
+// disconnect. Only host sessions ever call those endpoints.
+let hostToken: string | null = null;
+export function setHostToken(token: string | null): void {
+  hostToken = token;
+}
+function hostHeaders(): Record<string, string> {
+  return hostToken ? { 'X-Telecastt-Host-Token': hostToken } : {};
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);
   const text = await res.text();
@@ -54,14 +65,14 @@ export const api = {
     request<{ valid: boolean; status?: string; clientCount?: number }>(
       `/api/validate-room/${encodeURIComponent(code)}`
     ),
-  vddStatus: () => request<VddStatus>('/api/vdd/status'),
-  vddInstall: () => request<{ success: boolean }>('/api/vdd/install', { method: 'POST' }),
-  vddEnable: () => request<{ success: boolean }>('/api/vdd/enable', { method: 'POST' }),
-  vddDisable: () => request<{ success: boolean }>('/api/vdd/disable', { method: 'POST' }),
+  vddStatus: () => request<VddStatus>('/api/vdd/status', { headers: hostHeaders() }),
+  vddInstall: () => request<{ success: boolean }>('/api/vdd/install', { method: 'POST', headers: hostHeaders() }),
+  vddEnable: () => request<{ success: boolean }>('/api/vdd/enable', { method: 'POST', headers: hostHeaders() }),
+  vddDisable: () => request<{ success: boolean }>('/api/vdd/disable', { method: 'POST', headers: hostHeaders() }),
   vddConfigure: (body: Record<string, unknown>) =>
     request<{ success: boolean; error?: string }>('/api/vdd/configure', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...hostHeaders() },
       body: JSON.stringify(body),
     }),
 };

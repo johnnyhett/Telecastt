@@ -182,6 +182,19 @@ class RoomRegistry {
   }
 
   /**
+   * True if `token` is the host token of some live room. Used to authenticate
+   * privileged device-control HTTP endpoints (virtual display, Bluetooth) so a
+   * drive-by page or unauthenticated LAN client can't trigger them.
+   */
+  isHostToken(token, now = Date.now()) {
+    if (!token || typeof token !== 'string') return false;
+    for (const room of this.rooms.values()) {
+      if (room.hostToken === token && now <= room.expiresAt) return true;
+    }
+    return false;
+  }
+
+  /**
    * Remove `peer` from its room. Returns `{ room, removed, wasHost }` where
    * `removed` indicates the room itself was deleted (it became empty).
    */

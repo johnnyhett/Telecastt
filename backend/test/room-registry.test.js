@@ -179,4 +179,16 @@ console.log('--- STARTING ROOM REGISTRY TEST SUITE ---');
   console.log('OK  Test 10: sweep reaps expired & idle rooms');
 })();
 
+// 11. isHostToken authenticates device-control endpoints.
+(function testIsHostToken() {
+  const reg = new RoomRegistry();
+  const { hostToken } = reg.createRoom(1000);
+  assert.strictEqual(reg.isHostToken(hostToken, 1000), true, 'valid live host token accepted');
+  assert.strictEqual(reg.isHostToken('nope'), false, 'unknown token rejected');
+  assert.strictEqual(reg.isHostToken(''), false, 'empty token rejected');
+  assert.strictEqual(reg.isHostToken(undefined), false, 'missing token rejected');
+  assert.strictEqual(reg.isHostToken(hostToken, 1000 + reg.ttlMs + 1), false, 'expired room token rejected');
+  console.log('OK  Test 11: isHostToken device-control auth');
+})();
+
 console.log('--- ALL ROOM REGISTRY TESTS PASSED ---');
