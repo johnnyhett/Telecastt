@@ -41,19 +41,26 @@ try {
             }
         }
         
-        # Install driver if .inf is present
-        if (Test-Path $InfPath) {
-            pnputil /add-driver $InfPath /install
+        # Install the driver only if the .inf actually downloaded/extracted.
+        $installedInf = Test-Path $InfPath
+        if ($installedInf) {
+            pnputil /add-driver $InfPath /install | Out-Null
         }
-        
-        # Trigger Windows Extended Display mode via built-in displayswitch.
-        # /extend = extend desktop (true second monitor), not /external
-        # (which would project to the secondary display only).
-        try {
-            Start-Process "displayswitch.exe" -ArgumentList "/extend" -NoNewWindow
-        } catch {}
 
-        @{ success = $true; message = "Virtual Display Driver environment initialized and Extended Display Mode activated." } | ConvertTo-Json -Compress
+        # Verify Windows actually enumerated a virtual display device, and report
+        # the truth instead of a blanket "success".
+        Start-Sleep -Seconds 2
+        $device = Get-PnpDevice -Class Display -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FriendlyName -match 'Indirect|Idd|Virtual' }
+
+        if ($device) {
+            try { Start-Process "displayswitch.exe" -ArgumentList "/extend" -NoNewWindow } catch {}
+            @{ success = $true; message = "Virtual display active; extended desktop enabled." } | ConvertTo-Json -Compress
+        } elseif ($installedInf) {
+            @{ success = $false; error = "Driver files staged but Windows created no virtual display. This unsigned sample driver needs test-signing mode ('bcdedit /set testsigning on' as admin, then reboot) or a properly signed virtual display driver." } | ConvertTo-Json -Compress
+        } else {
+            @{ success = $false; error = "Could not download the virtual display driver (no network, or the release moved). Install a signed virtual display driver manually, or enable test-signing and retry." } | ConvertTo-Json -Compress
+        }
     }
 } catch {
     @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress

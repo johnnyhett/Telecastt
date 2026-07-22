@@ -83,7 +83,12 @@ export default function DisplayControls() {
         <h3>Display Topology</h3>
       </header>
 
-      <p className="panel-desc">Extend your desktop onto the connected device or mirror it.</p>
+      <p className="panel-desc">
+        A <em>true</em> second monitor needs a Windows virtual display driver. This can't be
+        fully automated: the unsigned sample driver requires Windows <strong>test-signing mode</strong>
+        (or a properly signed driver). If it doesn't take, the buttons below will now say so
+        instead of pretending it worked. Without a driver, use plain mirroring on the secondary.
+      </p>
 
       <label className="field">
         <span className="field-label">Display mode</span>

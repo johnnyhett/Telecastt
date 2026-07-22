@@ -98,18 +98,23 @@ export default function App() {
         msg.t === 'p'
           ? { ...msg, x: region.x + msg.x * region.w, y: region.y + msg.y * region.h }
           : msg;
-      // Pointer moves take the unreliable "cursor" lane (no head-of-line
-      // blocking under loss); a sequence number lets the host drop stale
-      // reorders. Everything else stays on the reliable control lane.
+      const control = channels.control;
+      const cursor = channels.cursor;
+      // Pointer moves prefer the low-latency unreliable lane; clicks and keys
+      // prefer the reliable lane. Crucially, ALWAYS fall back to whichever
+      // channel is actually open — so a click is never silently dropped just
+      // because one channel isn't ready yet (the "mouse moves but won't click"
+      // bug when the control channel lagged behind the cursor channel).
       if (out.t === 'p' && out.phase === 'move' && out.pt !== 'touch') {
-        const fast = channels.cursor;
-        if (fast && fast.readyState === 'open') {
-          fast.send(JSON.stringify({ ...out, s: ++seqRef.current }));
+        if (cursor && cursor.readyState === 'open') {
+          cursor.send(JSON.stringify({ ...out, s: ++seqRef.current }));
           return;
         }
+        if (control && control.readyState === 'open') control.send(JSON.stringify(out));
+        return;
       }
-      const ch = channels.control;
-      if (ch && ch.readyState === 'open') ch.send(JSON.stringify(out));
+      if (control && control.readyState === 'open') { control.send(JSON.stringify(out)); return; }
+      if (cursor && cursor.readyState === 'open') cursor.send(JSON.stringify(out));
     },
     [channels.control, channels.cursor, region]
   );
