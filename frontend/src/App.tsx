@@ -42,13 +42,29 @@ export default function App() {
 
   const clientLive = mode === 'client' && connectionState === 'connected';
 
-  // Degrade stream on low client battery.
+  // Adapt quality to battery. As host, degrade our own encoder for all peers.
+  // As a client (secondary), ask the host to degrade just this stream — with
+  // the mesh each secondary has its own sender, so it's independent per screen.
   const battery = useBatteryAware(0.15);
   useEffect(() => {
-    if (battery.shouldDegrade) {
+    if (isHost && battery.shouldDegrade) {
       setSettings((s) => ({ ...s, fps: 30, bitrateMbps: 10 }));
     }
-  }, [battery.shouldDegrade]);
+  }, [isHost, battery.shouldDegrade]);
+
+  useEffect(() => {
+    if (mode !== 'client') return;
+    const ch = channels.control;
+    if (!ch) return;
+    const req = () => {
+      try {
+        ch.send(JSON.stringify({ t: 'q', level: battery.shouldDegrade ? 'low' : 'auto' }));
+      } catch { /* channel not ready */ }
+    };
+    if (ch.readyState === 'open') req();
+    else ch.addEventListener('open', req, { once: true });
+    return () => ch.removeEventListener('open', req);
+  }, [mode, channels.control, battery.shouldDegrade]);
 
   useWakeLock(clientLive);
 

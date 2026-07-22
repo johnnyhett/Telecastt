@@ -50,6 +50,24 @@ function applyVideoCodecPreferences(pc: RTCPeerConnection) {
   }
 }
 
+// Cap a single peer's video encoder (bitrate + framerate). Applied globally from
+// the host's Stream Configuration UI, and per-secondary in response to a
+// client's quality request (see the 'q' control message).
+function setEncoderCaps(pc: RTCPeerConnection, bitrateMbps: number, fps: number) {
+  const sender = pc.getSenders().find((x) => x.track?.kind === 'video');
+  if (!sender) return;
+  const params = sender.getParameters();
+  if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+  params.encodings[0].maxBitrate = bitrateMbps * 1_000_000;
+  params.encodings[0].maxFramerate = fps;
+  sender.setParameters(params).catch(() => { /* ignore */ });
+}
+
+// Bitrate (Mbps) / framerate a secondary drops to when it requests degraded
+// quality (low battery, constrained link).
+const DEGRADED_BITRATE_MBPS = 8;
+const DEGRADED_FPS = 30;
+
 interface HostPeer {
   pc: RTCPeerConnection;
   control: RTCDataChannel;
@@ -135,14 +153,7 @@ export function useWebRTC(
 
   const applySettingsTo = useCallback((pc: RTCPeerConnection) => {
     const s = settingsRef.current;
-    if (!s) return;
-    const sender = pc.getSenders().find((x) => x.track?.kind === 'video');
-    if (!sender) return;
-    const params = sender.getParameters();
-    if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-    params.encodings[0].maxBitrate = s.bitrateMbps * 1_000_000;
-    params.encodings[0].maxFramerate = s.fps;
-    sender.setParameters(params).catch(() => { /* ignore */ });
+    if (s) setEncoderCaps(pc, s.bitrateMbps, s.fps);
   }, []);
 
   // ---- Host: create (or replace) a connection to one secondary PC ----
@@ -164,10 +175,22 @@ export function useWebRTC(
     const disposeCursor = attachHostInput(cursor, relayInput, { dropStale: true });
     const disposeClip = attachClipboardReceiver(clipboard);
 
+    // A secondary can ask the host to adapt *its* encoder (low battery / weak
+    // link). Each secondary has its own sender, so this is per-peer.
+    const onQuality = (e: MessageEvent) => {
+      let m: { t?: string; level?: string };
+      try { m = JSON.parse(e.data); } catch { return; }
+      if (!m || m.t !== 'q') return;
+      if (m.level === 'low') setEncoderCaps(pc, DEGRADED_BITRATE_MBPS, DEGRADED_FPS);
+      else applySettingsTo(pc); // 'auto' → back to the host's configured settings
+    };
+    control.addEventListener('message', onQuality);
+
     const entry: HostPeer = {
       pc, control, clipboard, cursor, pending: [],
       dispose: () => {
         disposeInput(); disposeCursor(); disposeClip();
+        control.removeEventListener('message', onQuality);
         try { pc.close(); } catch { /* ignore */ }
       },
     };
