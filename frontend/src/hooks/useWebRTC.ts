@@ -48,6 +48,12 @@ function setEncoderCaps(pc: RTCPeerConnection, bitrateMbps: number, fps: number,
     const h = sender.track?.getSettings?.().height;
     params.encodings[0].scaleResolutionDownBy = h && h > maxHeight ? h / maxHeight : 1;
   }
+  // The capture track carries contentHint 'detail' (right for crisp desktop
+  // text), which biases the stack to maintain-resolution: under bandwidth
+  // pressure it holds the pixel count and collapses framerate instead, giving a
+  // sharp but near-frozen desktop. Ask for 'balanced' so a constrained link
+  // trades some of both — this is an interactive surface, not a still image.
+  params.degradationPreference = 'balanced';
   sender.setParameters(params).catch(() => { /* ignore */ });
 }
 
@@ -499,11 +505,27 @@ export function useWebRTC(
     if (!isHost || !localStream) return;
     const video = localStream.getVideoTracks()[0];
     if (!video) return;
-    peersRef.current.forEach(({ pc }) => {
-      const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
-      if (sender) sender.replaceTrack(video).catch(() => {});
+    peersRef.current.forEach((entry, peerId) => {
+      const sender = entry.pc.getSenders().find((s) => s.track?.kind === 'video');
+      if (sender) {
+        sender.replaceTrack(video).catch(() => { /* ignore */ });
+        return;
+      }
+      // This peer was created while capture was stopped, so it has no video
+      // sender at all — replaceTrack has nothing to swap and the secondary would
+      // sit on a black screen forever. Add the track and renegotiate.
+      try {
+        entry.pc.addTrack(video, localStream);
+      } catch {
+        return;
+      }
+      entry.pc.createOffer()
+        .then((o) => entry.pc.setLocalDescription(o))
+        .then(() => sendSignal({ type: 'offer', to: peerId, offer: entry.pc.localDescription }))
+        .catch(() => { /* ignore */ });
     });
-  }, [localStream, isHost]);
+    redistributeBandwidth();
+  }, [localStream, isHost, sendSignal, redistributeBandwidth]);
 
   // Host: re-share the bitrate budget across secondaries when settings change.
   useEffect(() => {

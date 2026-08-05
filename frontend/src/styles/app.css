@@ -116,6 +116,48 @@
 }
 .select:focus { outline: none; border-color: var(--border-bright); }
 
+/* Two-state Mirror / Extend switch. */
+.segmented {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+.segmented-option {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.6rem;
+  border: 0;
+  border-radius: calc(var(--r) - 3px);
+  background: transparent;
+  color: var(--foreground-muted);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.segmented-option:hover { background: var(--surface-hover); color: var(--foreground); }
+.segmented-option.is-active {
+  background: rgba(56, 189, 248, 0.18);
+  border: 1px solid var(--border-bright);
+  color: var(--foreground);
+}
+.segmented-option:focus-visible { outline: 2px solid var(--border-bright); outline-offset: 1px; }
+
+.field-hint {
+  display: block;
+  margin-top: 0.45rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--foreground-muted);
+}
+
 .error-text {
   margin-top: 1rem;
   color: var(--rose);

@@ -24,13 +24,18 @@ const crypto = require('crypto');
 
 // Ambiguity-free charset (no O/0/I/1) — 32 chars → no modulo bias on a byte.
 const CODE_CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+// 8 symbols over a 32-char alphabet = 40 bits. The room code is effectively a
+// bearer credential for OS input injection, so 30 bits (6 chars) left a
+// realistic online guessing margin against the pool of live rooms; 40 bits puts
+// a hit ~1000x out of reach even before the per-IP join throttle.
+const CODE_LENGTH = 8;
 const RELAY_TYPES = new Set(['offer', 'answer', 'ice-candidate']);
 
 function generateRoomCode() {
   let code = '';
-  const bytes = new Uint8Array(6);
+  const bytes = new Uint8Array(CODE_LENGTH);
   crypto.webcrypto.getRandomValues(bytes);
-  for (let i = 0; i < 6; i++) code += CODE_CHARSET[bytes[i] % CODE_CHARSET.length];
+  for (let i = 0; i < CODE_LENGTH; i++) code += CODE_CHARSET[bytes[i] % CODE_CHARSET.length];
   return code;
 }
 
@@ -40,6 +45,20 @@ function generateToken() {
 
 function generatePeerId() {
   return crypto.randomBytes(8).toString('hex');
+}
+
+/**
+ * Constant-time string compare for secrets. A plain `===` on the host token
+ * short-circuits at the first differing byte, which leaks a byte-at-a-time
+ * oracle to an attacker who can time many join attempts. Token length is fixed
+ * and public, so an early length exit is not itself a leak.
+ */
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const ba = Buffer.from(a, 'utf8');
+  const bb = Buffer.from(b, 'utf8');
+  if (ba.length !== bb.length || ba.length === 0) return false;
+  return crypto.timingSafeEqual(ba, bb);
 }
 
 class RoomRegistry {
@@ -110,7 +129,7 @@ class RoomRegistry {
 
     // Resolve role. Presenting the valid host token grants (and re-claims) the
     // host slot; claiming host without it is rejected.
-    const presentsHostToken = Boolean(hostToken) && hostToken === room.hostToken;
+    const presentsHostToken = safeEqual(hostToken, room.hostToken);
     if (!presentsHostToken && role === 'host') {
       return { ok: false, code: 403, message: 'Invalid host credentials.' };
     }
@@ -194,10 +213,13 @@ class RoomRegistry {
    */
   isHostToken(token, now = Date.now()) {
     if (!token || typeof token !== 'string') return false;
+    // Scan every room without short-circuiting so the answer doesn't leak which
+    // room matched (or how far the comparison got) through response timing.
+    let ok = false;
     for (const room of this.rooms.values()) {
-      if (room.hostToken === token && now <= room.expiresAt) return true;
+      if (safeEqual(room.hostToken, token) && now <= room.expiresAt) ok = true;
     }
-    return false;
+    return ok;
   }
 
   /**
@@ -235,4 +257,4 @@ class RoomRegistry {
   }
 }
 
-module.exports = { RoomRegistry, generateRoomCode, generateToken, generatePeerId };
+module.exports = { RoomRegistry, generateRoomCode, generateToken, generatePeerId, CODE_LENGTH, CODE_CHARSET };

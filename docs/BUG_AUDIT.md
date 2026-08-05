@@ -7,6 +7,45 @@ audit time (several files were being edited concurrently).
 
 Severity key: **P0** blocks core use · **P1** major degradation · **P2** minor/edge.
 
+---
+
+## Remediation status
+
+Findings are recorded as originally written; this table tracks what has since
+been fixed in the tree.
+
+| ID | Status | What changed |
+|----|--------|--------------|
+| 1.1 | ✅ Fixed | TURN is supported via `VITE_TURN_URLS` / `VITE_ICE_SERVERS` (`lib/env.ts`). It is configuration, not a default — there is no free public TURN worth depending on — and the README says so plainly. |
+| 1.2 | ⚠️ Open | The ws/wss mismatch stands until the backend terminates TLS. |
+| 1.3 | ✅ Fixed | The client rebuilds its `RTCPeerConnection` on an offer from a new host id or a terminal connection state. |
+| 1.4 | ✅ Fixed | The inert `ready` broadcast is removed. |
+| 1.5 / 7.5 | ✅ Fixed | `canInject` gates on live membership only, and `sweep()` reaps **empty** rooms only, so a session is never torn out mid-use. |
+| 2.1 | ✅ Fixed | Pointer input normalizes against the real video content rect, backing out the `object-fit: contain` letterbox. |
+| 2.2 | ⚠️ Open | Input still lands on the primary monitor; the frontend never sets `monitor`. Needs capture-surface detection. |
+| 2.3 | ✅ Fixed | Wheel deltas are scaled to `WHEEL_DELTA` notches and packed as two's complement, so both directions work (the `[uint32]` cast used to throw on negatives). `deltaMode` (Firefox lines / pages) is normalized client-side. |
+| 2.4 | ✅ Fixed | `VkKeyScan`'s high byte is honored: the shift/ctrl/alt a character needs is synthesized around it, and never released if the user is genuinely holding it. `@` types `@`. |
+| 2.5 | ✅ Fixed | Key listeners moved to `window`, so fullscreen (which reparents focus to `<html>`) no longer kills the keyboard. |
+| 2.6 | ✅ Fixed | Input falls back to whichever data channel is open, so an early click is not dropped. |
+| 3.1 / 3.4 | ✅ Fixed | The Resolution setting drives `scaleResolutionDownBy` per sender. |
+| 3.2 | ✅ Fixed | Senders now request `degradationPreference: 'balanced'`, so a constrained link no longer holds 4K and collapses framerate to a slideshow. Combined with 3.1, the encoder is no longer asked to paint 4K over a few Mbps. |
+| 3.3 | ✅ Fixed | The forced AV1→HEVC→VP9 codec order is gone; the browser picks something it can hardware-accelerate. |
+| 3.5 | ✅ Fixed | The low-battery cap is applied non-destructively over the host's chosen settings, so quality returns by itself on mains power. |
+| 4.1 | ✅ Fixed | Mirror/Extend is a real toggle in the host UI, wired through to `useWebRTC`'s `extend` flag. |
+| 4.2 | ✅ Fixed | Follows from 2.1. |
+| 5.1 / 5.3 | ⚠️ Inherent | Still requires a signed driver or test-signing mode — but the install path now works up to that point (see 5.6) and says exactly why it stopped. |
+| 5.2 | ✅ Fixed | Elevated children write their own output to a temp file the parent reads back, so a declined UAC prompt or a real script error reaches the UI instead of a fabricated success. |
+| 5.4 | ✅ Fixed | The spatial layout is labelled "preview only" when no `onLayoutChange` is wired, rather than implying it edits the real arrangement. |
+| 5.5 | ✅ Fixed | A script that printed no JSON is now a **failure**; the script's own `success:false` is honored verbatim. |
+| 5.6 | ✅ Fixed | **New:** the upstream archive extracts into a nested folder, so the hardcoded `C:\Telecastt-VDD\IddSampleDriver.inf` never existed — `pnputil` was silently skipped and status always read "not installed". The `.inf` is now located recursively in both the installer and the status query. |
+| 6.1 | ⚠️ Open | Clipboard/wake-lock still need a secure context on clients. |
+| 6.2 | ✅ Fixed | A peer created without a capture track now gets `addTrack` + renegotiation instead of a permanent black screen. |
+| 6.3 / 6.4 | ⚠️ Open | Low impact; self-healing / undiscoverable-but-acceptable as noted. |
+| 7.1 | ✅ Fixed | All PowerShell goes through `execFile` with argv arrays (`lib/powershell.js`). |
+| 7.2 | ✅ Fixed | Joins no longer consume the shared HTTP bucket; failed joins have their own tight budget. |
+| 7.3 | ⚠️ Open | The `click`/`rightclick` opcodes still sleep 10 ms — but nothing emits them; the live path uses separate mousedown/mouseup. |
+| 7.4 | ✅ Fixed | `scripts/Inject-Input.ps1` deleted. |
+
 Reported symptoms this audit maps to root causes: (1) clicks don't register,
 (2) poor video quality, (3) extend does nothing, (4) VDD does nothing, (5) bad UX.
 The most important new finding is a coordinate-mapping bug (#2.1) that explains

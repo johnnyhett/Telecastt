@@ -30,7 +30,16 @@ function Get-VDDStatus {
     # NOT merely that option.txt exists (that file is written before the download,
     # so keying off it falsely reported "installed"). "Present" means Windows
     # actually enumerated a virtual display device.
-    $driverExists = Test-Path "C:\Telecastt-VDD\IddSampleDriver.inf"
+    #
+    # The .inf must be located RECURSIVELY: the upstream archive extracts into a
+    # nested folder, so the old hardcoded root path never existed and this always
+    # reported "not installed" even after a successful staging.
+    $driverExists = $false
+    if (Test-Path "C:\Telecastt-VDD") {
+        $inf = Get-ChildItem -Path "C:\Telecastt-VDD" -Filter "*.inf" -Recurse -File -ErrorAction SilentlyContinue |
+               Select-Object -First 1
+        $driverExists = ($null -ne $inf)
+    }
     $device = Get-VDDDevice
 
     return [PSCustomObject]@{

@@ -15,6 +15,8 @@ const { spawn } = require('child_process');
 let psProcess = null;
 let isReady = false;
 let commandBuffer = [];
+// True while the injector's stdin pipe is full — see injectInput().
+let stdinSaturated = false;
 
 const PS_SCRIPT = `
 Add-Type -AssemblyName System.Windows.Forms
@@ -156,6 +158,38 @@ $VK_MAP = @{
     'PrintScreen'= 0x2C; 'Pause'     = 0x13; 'ContextMenu'= 0x5D
 }
 
+$VK_SHIFT = 0xA0
+$VK_CTRL  = 0xA2
+$VK_ALT   = 0xA4
+
+# Which modifiers the remote peer is genuinely holding (from its own Shift/
+# Control/Alt key events). Tracked so a synthesized modifier is never used to
+# release one the user is actually holding.
+$Held = @{ shift = $false; ctrl = $false; alt = $false }
+
+# Resolve a browser KeyboardEvent.key to a virtual-key code plus the modifier
+# state that key requires. VkKeyScan packs the shift/ctrl/alt state into the
+# HIGH byte; masking it off with -band 0xFF (as this script used to) meant '@'
+# was injected as '2' and every shifted symbol came out wrong.
+function Resolve-Key($keyName) {
+    if ([string]::IsNullOrEmpty($keyName)) { return $null }
+    if ($VK_MAP.ContainsKey($keyName)) {
+        return @{ vk = $VK_MAP[$keyName]; shift = $false; ctrl = $false; alt = $false }
+    }
+    if ($keyName.Length -eq 1) {
+        $scan = [TelecasttInput]::VkKeyScan($keyName[0])
+        if ($scan -eq -1) { return $null }
+        $state = ($scan -shr 8) -band 0xFF
+        return @{
+            vk    = ($scan -band 0xFF)
+            shift = (($state -band 1) -ne 0)
+            ctrl  = (($state -band 2) -ne 0)
+            alt   = (($state -band 4) -ne 0)
+        }
+    }
+    return $null
+}
+
 # Signal readiness
 Write-Output "READY"
 
@@ -238,31 +272,55 @@ while ($true) {
                 [TelecasttInput]::mouse_event([TelecasttInput]::MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
             }
             'wheel' {
-                $delta = -[int]$cmd.deltaY
-                [TelecasttInput]::mouse_event([TelecasttInput]::MOUSEEVENTF_WHEEL, 0, 0, [uint32]$delta, 0)
+                # Browsers report deltaY in pixels, positive = scroll down;
+                # Windows wants signed multiples of WHEEL_DELTA (120) with
+                # positive = scroll up, packed into a DWORD. Two bugs lived here:
+                # a raw pixel delta scrolled a tiny fraction of a line, and
+                # [uint32] of a negative value THROWS in PowerShell, so one
+                # scroll direction was silently swallowed entirely.
+                $notches = [math]::Round([double]$cmd.deltaY / 100.0)
+                if ($notches -eq 0) {
+                    if ($cmd.deltaY -gt 0) { $notches = 1 } elseif ($cmd.deltaY -lt 0) { $notches = -1 }
+                }
+                if ($notches -ne 0) {
+                    $delta = [int](-$notches * 120)
+                    # Two's complement into an unsigned DWORD (avoid hex literal
+                    # masking: 0xFFFFFFFF parses as -1 in Windows PowerShell).
+                    $packed = if ($delta -lt 0) { [uint32](4294967296 + $delta) } else { [uint32]$delta }
+                    [TelecasttInput]::mouse_event([TelecasttInput]::MOUSEEVENTF_WHEEL, 0, 0, $packed, 0)
+                }
             }
             'keydown' {
-                $vk = 0
-                $keyName = $cmd.key
-                if ($VK_MAP.ContainsKey($keyName)) {
-                    $vk = $VK_MAP[$keyName]
-                } elseif ($keyName.Length -eq 1) {
-                    $vk = [TelecasttInput]::VkKeyScan($keyName) -band 0xFF
-                }
-                if ($vk -gt 0) {
-                    [TelecasttInput]::keybd_event([byte]$vk, 0, [TelecasttInput]::KEYEVENTF_KEYDOWN, 0)
+                $k = Resolve-Key $cmd.key
+                if ($k -and $k.vk -gt 0) {
+                    # Press only the modifiers this character needs AND the user
+                    # isn't already holding, so we never release a modifier they
+                    # are genuinely holding down.
+                    $addShift = ($k.shift -and -not $Held.shift)
+                    $addCtrl  = ($k.ctrl  -and -not $Held.ctrl)
+                    $addAlt   = ($k.alt   -and -not $Held.alt)
+                    if ($addShift) { [TelecasttInput]::keybd_event([byte]$VK_SHIFT, 0, [TelecasttInput]::KEYEVENTF_KEYDOWN, 0) }
+                    if ($addCtrl)  { [TelecasttInput]::keybd_event([byte]$VK_CTRL,  0, [TelecasttInput]::KEYEVENTF_KEYDOWN, 0) }
+                    if ($addAlt)   { [TelecasttInput]::keybd_event([byte]$VK_ALT,   0, [TelecasttInput]::KEYEVENTF_KEYDOWN, 0) }
+
+                    [TelecasttInput]::keybd_event([byte]$k.vk, 0, [TelecasttInput]::KEYEVENTF_KEYDOWN, 0)
+
+                    if ($addAlt)   { [TelecasttInput]::keybd_event([byte]$VK_ALT,   0, [TelecasttInput]::KEYEVENTF_KEYUP, 0) }
+                    if ($addCtrl)  { [TelecasttInput]::keybd_event([byte]$VK_CTRL,  0, [TelecasttInput]::KEYEVENTF_KEYUP, 0) }
+                    if ($addShift) { [TelecasttInput]::keybd_event([byte]$VK_SHIFT, 0, [TelecasttInput]::KEYEVENTF_KEYUP, 0) }
+
+                    if ($k.vk -eq 0xA0 -or $k.vk -eq 0xA1) { $Held.shift = $true }
+                    elseif ($k.vk -eq 0xA2 -or $k.vk -eq 0xA3) { $Held.ctrl = $true }
+                    elseif ($k.vk -eq 0xA4 -or $k.vk -eq 0xA5) { $Held.alt = $true }
                 }
             }
             'keyup' {
-                $vk = 0
-                $keyName = $cmd.key
-                if ($VK_MAP.ContainsKey($keyName)) {
-                    $vk = $VK_MAP[$keyName]
-                } elseif ($keyName.Length -eq 1) {
-                    $vk = [TelecasttInput]::VkKeyScan($keyName) -band 0xFF
-                }
-                if ($vk -gt 0) {
-                    [TelecasttInput]::keybd_event([byte]$vk, 0, [TelecasttInput]::KEYEVENTF_KEYUP, 0)
+                $k = Resolve-Key $cmd.key
+                if ($k -and $k.vk -gt 0) {
+                    [TelecasttInput]::keybd_event([byte]$k.vk, 0, [TelecasttInput]::KEYEVENTF_KEYUP, 0)
+                    if ($k.vk -eq 0xA0 -or $k.vk -eq 0xA1) { $Held.shift = $false }
+                    elseif ($k.vk -eq 0xA2 -or $k.vk -eq 0xA3) { $Held.ctrl = $false }
+                    elseif ($k.vk -eq 0xA4 -or $k.vk -eq 0xA5) { $Held.alt = $false }
                 }
             }
         }
@@ -313,6 +371,7 @@ function ensureProcess() {
     console.error('[InputController] Failed to spawn injector process:', err.message);
     psProcess = null;
     isReady = false;
+    stdinSaturated = false;
     commandBuffer = [];
   });
 
@@ -320,6 +379,7 @@ function ensureProcess() {
     console.log(`[InputController] Process exited with code ${code}`);
     psProcess = null;
     isReady = false;
+    stdinSaturated = false;
   });
 }
 
@@ -380,7 +440,23 @@ function injectInput(data) {
       return { success: true, buffered: true };
     }
 
-    psProcess.stdin.write(cmd + '\n');
+    // Respect stdin backpressure. PowerShell consumes one line per ReadLine();
+    // a peer can emit pointer moves far faster than that, and ignoring the
+    // write() return value let Node's writable buffer grow without bound — a
+    // memory-exhaustion DoS from a single flooding client. While the pipe is
+    // saturated we drop MOVES (inherently lossy — the next sample supersedes
+    // them) but never a press or release, which would leave a key or mouse
+    // button stuck down on the host.
+    const isLossyMove = clean.action === 'move' || (clean.action === 'touch' && clean.phase === 'move');
+    if (stdinSaturated && isLossyMove) {
+      return { success: true, dropped: true };
+    }
+
+    const flushed = psProcess.stdin.write(cmd + '\n');
+    if (!flushed && !stdinSaturated) {
+      stdinSaturated = true;
+      psProcess.stdin.once('drain', () => { stdinSaturated = false; });
+    }
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
@@ -395,6 +471,7 @@ function killInjector() {
     } catch { /* ignore */ }
     psProcess = null;
     isReady = false;
+    stdinSaturated = false;
     commandBuffer = [];
     console.log('[InputController] Injector process terminated.');
   }

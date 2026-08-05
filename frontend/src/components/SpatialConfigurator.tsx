@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 
 export interface DisplayNode {
@@ -20,11 +20,15 @@ const BOUNDS = { minX: 8, maxX: 320, minY: 8, maxY: 150 };
 /**
  * Drag-to-arrange 2D layout of the host + secondary displays. Self-contained
  * styling; the primary display is fixed while secondaries can be positioned.
+ *
+ * The arrangement is reported through `onLayoutChange`. Callers that do not pass
+ * that prop get a preview only — dragging changes nothing outside this
+ * component, which is why the label below says so rather than implying the
+ * host's real monitor arrangement is being edited.
  */
 export default function SpatialConfigurator({ devices, onLayoutChange }: SpatialConfiguratorProps) {
   const [nodes, setNodes] = useState<DisplayNode[]>(devices);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setNodes(devices); }, [devices]);
 
@@ -60,8 +64,10 @@ export default function SpatialConfigurator({ devices, onLayoutChange }: Spatial
 
   return (
     <div className="spatial">
-      <span className="field-label">Spatial layout (drag to arrange)</span>
-      <div className="spatial-canvas" ref={containerRef}>
+      <span className="field-label">
+        {onLayoutChange ? 'Spatial layout (drag to arrange)' : 'Spatial layout (preview only)'}
+      </span>
+      <div className="spatial-canvas">
         {nodes.map((node) => (
           <div
             key={node.id}

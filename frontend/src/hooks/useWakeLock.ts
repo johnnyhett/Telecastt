@@ -8,26 +8,35 @@ export const useWakeLock = (enabled: boolean) => {
 
     let active = true;
     const acquire = async () => {
+      // The browser releases the lock whenever the page is hidden. Re-acquiring
+      // from the 'release' handler while hidden just fails and fires again, so
+      // only the visibilitychange path below re-arms it — otherwise a
+      // backgrounded tab spins on request/reject.
+      if (!active || document.visibilityState !== 'visible' || wakeLock.current) return;
       try {
-        wakeLock.current = await navigator.wakeLock.request('screen');
-        wakeLock.current.addEventListener('release', () => {
-          if (active) acquire(); // Re-acquire if page becomes visible again
+        const sentinel = await navigator.wakeLock.request('screen');
+        if (!active) {
+          void sentinel.release().catch(() => { /* already gone */ });
+          return;
+        }
+        wakeLock.current = sentinel;
+        sentinel.addEventListener('release', () => {
+          if (wakeLock.current === sentinel) wakeLock.current = null;
         });
       } catch (e) {
         console.warn('Wake Lock failed:', e);
       }
     };
 
-    acquire();
+    void acquire();
 
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && active) acquire();
-    };
+    const handleVisibility = () => { void acquire(); };
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       active = false;
-      wakeLock.current?.release();
+      void wakeLock.current?.release().catch(() => { /* already released */ });
+      wakeLock.current = null;
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [enabled]);

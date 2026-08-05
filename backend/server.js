@@ -1,3 +1,5 @@
+require('dotenv').config({ quiet: true });
+
 const express = require('express');
 const http = require('http');
 const { WebSocketServer } = require('ws');
@@ -8,6 +10,10 @@ const { execFile } = require('child_process');
 const RateLimiter = require('./lib/rate-limiter');
 
 const app = express();
+// The only client is this app's own fetch(); trusting a forwarded-for header
+// would let any caller spoof its identity past the per-IP limiter below.
+app.set('trust proxy', false);
+app.disable('x-powered-by');
 
 // ---------------------------------------------------------------------------
 // Origin allow-list (defends the input-injection / device-control endpoints
@@ -28,32 +34,80 @@ app.use(cors({
     // Never throw here — returning `false` simply omits CORS headers so the
     // browser blocks the cross-site response/preflight.
     callback(null, isTrustedOrigin(origin));
-  }
+  },
+  allowedHeaders: ['Content-Type', 'X-Telecastt-Host-Token'],
 }));
+
+// CORS alone does NOT stop a request from executing — resolving an untrusted
+// origin to `false` merely omits the response headers, so a "simple" cross-site
+// POST still reaches the handler and still performs its side effect. Reject
+// disallowed origins here, before any route runs. Requests with no Origin at
+// all (curl, native clients, same-origin navigations) are still allowed through
+// — the allow-list is a CSRF defense, not authentication; the host token on
+// /api/vdd and /api/bluetooth is what actually authorizes privileged calls.
+app.use((req, res, next) => {
+  const origin = req.get('Origin');
+  if (origin && !isTrustedOrigin(origin)) {
+    return res.status(403).json({ error: 'Origin not allowed.' });
+  }
+  next();
+});
+
+// This process serves a JSON API only — it never returns HTML — so the strictest
+// possible policy applies. `frame-ancestors 'none'` (plus X-Frame-Options for
+// older agents) keeps responses out of a hostile frame, and `no-store` keeps
+// room codes and host tokens out of any intermediary or disk cache.
+app.use((req, res, next) => {
+  res.set({
+    'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+    'Cross-Origin-Resource-Policy': 'same-origin',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Permissions-Policy': 'geolocation=(), camera=(), microphone=(), interest-cohort=()',
+    'Cache-Control': 'no-store',
+  });
+  // Only assert HSTS when the response actually travelled over TLS — sending it
+  // over plain http is meaningless and pins hosts that have no certificate.
+  if (req.secure) res.set('Strict-Transport-Security', 'max-age=31536000');
+  next();
+});
+
 app.use(express.json({ limit: '256kb' }));
 
-// Per-IP Rate Limiter Map
-const rateLimiters = new Map();
+// Keyed token-bucket store with idle eviction, so a long-running server does
+// not accumulate one limiter per IP it has ever seen.
 const RATE_LIMIT_CLEANUP_INTERVAL = 60000;
+const RATE_LIMIT_IDLE_MS = 300000;
 
-function getRateLimiter(ip) {
-  if (!rateLimiters.has(ip)) {
-    rateLimiters.set(ip, { limiter: new RateLimiter(20, 50), lastUsed: Date.now() });
-  }
-  const entry = rateLimiters.get(ip);
-  entry.lastUsed = Date.now();
-  return entry.limiter;
+function createLimiterStore(tokensPerSecond, bucketSize) {
+  const entries = new Map();
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of entries.entries()) {
+      if (now - entry.lastUsed > RATE_LIMIT_IDLE_MS) entries.delete(key);
+    }
+  }, RATE_LIMIT_CLEANUP_INTERVAL).unref();
+
+  return (key) => {
+    let entry = entries.get(key);
+    if (!entry) {
+      entry = { limiter: new RateLimiter(tokensPerSecond, bucketSize), lastUsed: 0 };
+      entries.set(key, entry);
+    }
+    entry.lastUsed = Date.now();
+    return entry.limiter;
+  };
 }
 
-// Cleanup stale per-IP limiters every 60 seconds
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of rateLimiters.entries()) {
-    if (now - entry.lastUsed > 300000) { // 5 min idle
-      rateLimiters.delete(ip);
-    }
-  }
-}, RATE_LIMIT_CLEANUP_INTERVAL).unref();
+// General per-IP HTTP budget.
+const getRateLimiter = createLimiterStore(20, 50);
+// Failed room joins are the room-code brute-force path, so they get their own
+// deliberately tight budget (~12/min, burst 10) rather than sharing the generous
+// HTTP bucket: a legitimate client mistypes a code a handful of times at most,
+// while a guessing loop burns through this in seconds and gets its socket cut.
+const getJoinFailureLimiter = createLimiterStore(0.2, 10);
 
 // Per-IP Rate Limiter Middleware
 app.use((req, res, next) => {
@@ -92,11 +146,15 @@ const registry = new RoomRegistry({
   maxPeersPerRoom: MAX_PEERS_PER_ROOM,
 });
 
-// Network Interfaces API — prefer Wi-Fi/Ethernet over virtual adapters
+// Network Interfaces API — prefer Wi-Fi/Ethernet over virtual adapters.
+// Returns ONLY the single address the QR/join flow needs plus a Bluetooth-PAN
+// flag. The full interface inventory (every address, adapter name and type) was
+// an unauthenticated map of the host's network topology for any LAN client, and
+// nothing in the app ever consumed it.
 app.get('/api/network-info', asyncHandler((req, res) => {
   const interfaces = os.networkInterfaces();
   let localIp = 'localhost';
-  const allIps = [];
+  const seen = [];
   let bestPriority = 99;
 
   const typePriority = { wifi: 1, ethernet: 2, bluetooth: 3, other: 4 };
@@ -121,7 +179,7 @@ app.get('/api/network-info', asyncHandler((req, res) => {
           type = 'ethernet';
         }
 
-        allIps.push({ interfaceName: name, address: iface.address, type });
+        seen.push(type);
 
         // Pick the highest-priority adapter
         const priority = typePriority[type] || 99;
@@ -133,8 +191,8 @@ app.get('/api/network-info', asyncHandler((req, res) => {
     }
   }
 
-  const isBluetoothActive = allIps.some(item => item.type === 'bluetooth');
-  res.json({ localIp, allIps, isBluetoothActive });
+  const isBluetoothActive = seen.includes('bluetooth');
+  res.json({ localIp, isBluetoothActive });
 }));
 
 // Official Room Creation Endpoint
@@ -264,13 +322,27 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ success: false, error: 'Internal server error' });
 });
 
+// `maxPayload` bounds a single frame but nothing bounded how MANY sockets one
+// client may hold open. Cap them globally and per source IP so a loop of
+// connections can't exhaust file descriptors or memory.
+const MAX_WS_CLIENTS = Number(process.env.MAX_WS_CLIENTS) || 200;
+const MAX_WS_CLIENTS_PER_IP = Number(process.env.MAX_WS_CLIENTS_PER_IP) || 24;
+const socketsByIp = new Map();
+
 // WebSocket Signaling Server
 wss.on('connection', (ws, req) => {
+  const clientIp = (req && req.socket && req.socket.remoteAddress) || 'unknown';
+  const openForIp = socketsByIp.get(clientIp) || 0;
+  if (wss.clients.size > MAX_WS_CLIENTS || openForIp >= MAX_WS_CLIENTS_PER_IP) {
+    try { ws.close(1013, 'Too many connections'); } catch { /* already gone */ }
+    return;
+  }
+  socketsByIp.set(clientIp, openForIp + 1);
+
   ws.isAlive = true;
   ws.on('error', console.error);
   ws.on('pong', () => { ws.isAlive = true; });
 
-  const clientIp = (req && req.socket && req.socket.remoteAddress) || 'unknown';
   // Bounds raw WebSocket flooding while comfortably allowing bursty pointer
   // input (~100+/s). Independent of the per-IP HTTP limiter above.
   const msgLimiter = new RateLimiter(300, 500);
@@ -299,13 +371,19 @@ wss.on('connection', (ws, req) => {
 
     try {
       if (data.type === 'join') {
-        // Throttle join attempts per IP to blunt room-code brute forcing.
-        if (!getRateLimiter(clientIp).consume(1)) {
-          peer.send({ type: 'error', message: 'Too many attempts. Please slow down.' });
-          return;
-        }
+        // A socket may not re-join; otherwise one connection could cycle through
+        // guessed codes forever while holding a single slot.
+        if (peer.id) return;
         const result = registry.join(data.roomId, peer, { role: data.role, hostToken: data.hostToken });
         if (!result.ok) {
+          // Charge only FAILED joins against the brute-force budget, and drop the
+          // socket once it is exhausted so each further guess costs a full
+          // reconnect (itself capped per IP).
+          if (!getJoinFailureLimiter(clientIp).consume(1)) {
+            peer.send({ type: 'error', message: 'Too many failed attempts. Please slow down.' });
+            try { ws.close(1008, 'Too many failed join attempts'); } catch { /* already closing */ }
+            return;
+          }
           peer.send({ type: 'error', message: result.message });
           return;
         }
@@ -322,11 +400,6 @@ wss.on('connection', (ws, req) => {
         registry.othersOf(room, peer).forEach((p) => {
           p.send({ type: 'peer-joined', peerId: result.peerId, role: result.role });
         });
-        // Legacy 2-peer handshake: the original client kicks off the WebRTC
-        // offer/answer once a second peer is present.
-        if (room.peers.size === 2) {
-          registry.peersOf(room).forEach((p) => p.send({ type: 'ready', status: 'connected' }));
-        }
       }
       // Signaling relay — targeted (data.to) or broadcast to the room, stamped
       // with the sender's id so a host can tell which secondary PC replied.
@@ -348,6 +421,10 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
+    const remaining = (socketsByIp.get(clientIp) || 1) - 1;
+    if (remaining > 0) socketsByIp.set(clientIp, remaining);
+    else socketsByIp.delete(clientIp);
+
     const { room, removed } = registry.leave(peer);
     if (room && !removed) {
       registry.peersOf(room).forEach((p) => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useWebRTC } from './hooks/useWebRTC';
 import { useDisplayCapture } from './hooks/useDisplayCapture';
@@ -25,32 +25,43 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [uiError, setUiError] = useState<string | null>(null);
   const [settings, setSettings] = useState<StreamSettings>({ fps: 60, bitrateMbps: 50, resolution: '4K' });
+  // Mirror (every secondary shows the whole desktop) vs Extend (each secondary
+  // shows a distinct tiled region of it).
+  const [extend, setExtend] = useState(false);
 
   const isHost = mode === 'host';
+
+  // Adapt quality to battery. As host, degrade our own encoder for all peers.
+  // As a client (secondary), ask the host to degrade just this stream — with
+  // the mesh each secondary has its own sender, so it's independent per screen.
+  const battery = useBatteryAware(0.15);
+
+  // Apply the low-battery cap NON-destructively, on top of whatever the host
+  // chose, instead of overwriting the stored settings. Writing the degraded
+  // values into state meant a laptop that dipped below 15% once was pinned to
+  // 10 Mbps / 30 fps for the rest of the session, even back on mains power.
+  const effectiveSettings = useMemo<StreamSettings>(
+    () =>
+      battery.shouldDegrade
+        ? { ...settings, fps: Math.min(settings.fps, 30), bitrateMbps: Math.min(settings.bitrateMbps, 10) }
+        : settings,
+    [settings, battery.shouldDegrade]
+  );
 
   const { localStream, startCapture, stopCapture } = useDisplayCapture();
   const { connectionState, isReady, error, remoteStream, stats, channels, peerCount, region } = useWebRTC(
     roomId,
     isHost,
     localStream,
-    isHost ? settings : null,
-    hostToken
+    isHost ? effectiveSettings : null,
+    hostToken,
+    extend
   );
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const clientLive = mode === 'client' && connectionState === 'connected';
-
-  // Adapt quality to battery. As host, degrade our own encoder for all peers.
-  // As a client (secondary), ask the host to degrade just this stream — with
-  // the mesh each secondary has its own sender, so it's independent per screen.
-  const battery = useBatteryAware(0.15);
-  useEffect(() => {
-    if (isHost && battery.shouldDegrade) {
-      setSettings((s) => ({ ...s, fps: 30, bitrateMbps: 10 }));
-    }
-  }, [isHost, battery.shouldDegrade]);
 
   // Network-sensing adaptation (777 VI.1): watch this client's live telemetry
   // and, with hysteresis to avoid flapping, decide whether to ask for degraded
@@ -225,6 +236,8 @@ export default function App() {
         isReady={isReady}
         peerCount={peerCount}
         connectionState={connectionState}
+        extend={extend}
+        onExtendChange={setExtend}
         onSettingsChange={setSettings}
         onDisconnect={handleDisconnect}
       />
