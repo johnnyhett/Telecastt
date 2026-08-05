@@ -81,10 +81,11 @@ Because trust matters more than hype:
 | Area | Status |
 | :-- | :-- |
 | Multi-PC mesh, mirror/extend, remote control, adaptive quality, clipboard | ✅ Works today, in-browser, over LAN |
-| OS input injection + virtual-display provisioning | 🪟 **Windows host companion** (Win32 `InjectTouchInput` / `SetCursorPos` / `keybd_event`); IDD virtual-display scripts are **experimental**. macOS/Linux injection is planned |
-| Extend-mode tiling | ✅ Vertical-column auto-tiling; regions map to fill each screen (some aspect stretch). True OS-level extension across machines needs N virtual displays (planned) |
+| OS input injection + virtual-display provisioning | 🪟 **Windows host companion** (Win32 `InjectTouchInput` / `SetCursorPos` / `keybd_event`); IDD virtual-display scripts are **experimental** and need a signed driver or test-signing mode. macOS/Linux injection is planned |
+| Extend-mode tiling | ✅ Mirror/Extend toggle on the host; vertical-column auto-tiling, regions map to fill each screen (some aspect stretch). True OS-level extension across machines needs N virtual displays (planned) |
 | Transport security | ⚠️ WebRTC media/data are DTLS-SRTP encrypted, but **signaling is plain `ws://` by default** on the LAN — TLS/`wss://` is on the roadmap |
-| Cross-NAT / internet use | ⚠️ STUN only today; a **TURN** relay is needed for firewalled/WAN links (planned) |
+| Cross-NAT / internet use | ⚠️ STUN by default (fine on a LAN). **TURN is supported but must be configured** — see [Configuration](#configuration); without a relay, symmetric NATs (phone hotspots, many corporate networks) will not connect |
+| Spatial layout drag-and-drop | 🚧 Preview only — it does not change the host's real monitor arrangement, and is labelled as such in the UI |
 | File transfer, rich (image) clipboard | 🚧 Not yet |
 | Native mobile/desktop store apps | ❌ Not planned — this is a web-first PWA |
 
@@ -177,6 +178,30 @@ npm run dev        # served with --host so other devices can reach it
 
 ---
 
+## Configuration
+
+Everything below is optional — the defaults work on a LAN.
+
+**Frontend** (`frontend/.env`, read at build time by Vite):
+
+| Variable | Purpose |
+| :-- | :-- |
+| `VITE_TURN_URLS` | Comma-separated TURN URLs, appended to the default STUN list. **Required for cross-NAT** (hotspots, symmetric NAT) — STUN alone cannot punch through. |
+| `VITE_TURN_USERNAME` / `VITE_TURN_CREDENTIAL` | Credentials for the above. |
+| `VITE_ICE_SERVERS` | A JSON `RTCIceServer[]` that replaces the ICE list wholesale. |
+
+**Backend** (`backend/.env`, loaded via `dotenv`):
+
+| Variable | Default | Purpose |
+| :-- | :-- | :-- |
+| `PORT` | `3001` | Signaling / device-control port. |
+| `MAX_PEERS_PER_ROOM` | `8` | Host + secondaries per session. |
+| `MAX_WS_CLIENTS` | `200` | Global cap on concurrent signaling sockets. |
+| `MAX_WS_CLIENTS_PER_IP` | `24` | Per-source cap on concurrent signaling sockets. |
+| `TELECASTT_PS_TIMEOUT_MS` | `120000` | Timeout for a host-companion PowerShell call. |
+
+---
+
 ## Development & testing
 
 Requirements: **Node 18+** (20 recommended). Install per package.
@@ -185,7 +210,8 @@ Requirements: **Node 18+** (20 recommended). Install per package.
 ```bash
 cd backend
 npm install
-npm test      # unit tests: binary protocol, rate limiter, room registry, input sanitizer
+npm test      # unit tests: binary protocol, rate limiter, room registry, input sanitizer,
+              #             PowerShell result parsing & argument quoting
 npm start     # signaling server + host companion (port 3001)
 ```
 
@@ -195,7 +221,7 @@ cd frontend
 npm install
 npm run dev        # dev server (Vite, --host so other devices can reach it)
 npm run build      # production build
-npx tsc --noEmit   # type-check
+npm run typecheck  # tsc --noEmit
 npm run lint       # oxlint
 ```
 
@@ -209,21 +235,29 @@ on any OS; only the actual OS-level injection needs a Windows host.
 
 Telecastt injects OS input, so it treats authorization seriously:
 
-- **Authenticated host** — the host proves itself with a per-room token on join; a reconnecting
-  host reclaims its slot instead of being locked out.
+- **Authenticated host** — the host proves itself with a per-room token on join, compared in
+  constant time; a reconnecting host reclaims its slot instead of being locked out.
 - **Host-only injection** — only the authenticated host peer may drive OS input over the socket;
   a joined secondary cannot inject directly.
-- **Rate-limited signaling** — per-connection message limits and per-IP throttling on join blunt
-  flooding and room-code brute forcing.
+- **40-bit room codes** — 8 CSPRNG symbols from an ambiguity-free alphabet. Failed joins draw on
+  a dedicated per-IP budget (~12/min) and the socket is dropped once it's spent, so each further
+  guess costs a full reconnect — which is itself capped per IP.
+- **Rate-limited, bounded signaling** — per-connection message limits, per-IP HTTP throttling, and
+  caps on concurrent sockets both globally and per source.
 - **Token-gated device control** — virtual-display / Bluetooth endpoints (incl. an elevated
-  driver install) require the host token, closing drive-by CSRF.
+  driver install) require the host token.
+- **Server-enforced origin allow-list** — a request from an untrusted origin is rejected with 403
+  before any handler runs, so a drive-by page cannot fire a side effect it merely can't read.
+  Responses carry a strict CSP, `frame-ancestors 'none'`, `nosniff` and `no-store`.
 - **Sanitized input** — every remote input payload is coerced to a fixed, allow-listed, clamped
-  shape before it reaches the injector (no shell, no command injection).
-- **Origin allow-list** — signaling accepts only same-machine / private-LAN origins.
+  shape before it reaches the injector, which is spawned with **no shell** and fed JSON on stdin.
+  Writes respect backpressure, so an input flood can't grow an unbounded buffer.
+- **Verified driver package** — the virtual-display archive is pinned by SHA-256 and checked
+  *before* extraction; a mismatch refuses the install rather than trusting the download.
 
 Known gap: signaling is plain `ws://` on the LAN by default — see
-[`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) for the full audit and remediation plan
-(TLS, host-approval consent, longer codes).
+[`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) for the full audit, what has since been
+remediated, and what remains (TLS, host-approval consent).
 
 ---
 

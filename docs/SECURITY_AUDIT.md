@@ -28,6 +28,35 @@
 
 ---
 
+## Remediation status
+
+The findings below are recorded as originally written. This table tracks what has
+since been fixed in the tree; the per-finding sections are the historical
+analysis and are **not** rewritten.
+
+| ID | Status | What changed |
+|----|--------|--------------|
+| F1 | ✅ Fixed | Room codes are now 8 symbols (40 bits, `room-registry.js`). Failed WS joins draw on a dedicated per-IP bucket (~12/min, burst 10) and the socket is closed once it is spent; a socket may join only once, so one connection can no longer loop guesses. |
+| F2 | ✅ Fixed | Per-connection message limiter retained; `stdin.write()` backpressure is now honored (moves dropped while saturated, presses/releases never), and concurrent sockets are capped globally (`MAX_WS_CLIENTS`) and per IP (`MAX_WS_CLIENTS_PER_IP`). |
+| F3 | ✅ Fixed | `/api/vdd/*` and `/api/bluetooth/*` require the host token (`requireHostToken`), and an untrusted `Origin` is now rejected **server-side with 403** before any handler runs, rather than relying on CORS response headers. |
+| F4 | ⚠️ Open | Still plain `ws://`/`http://` by default. TLS termination remains the top open item. |
+| F5 | ✅ Fixed | `input-inject` requires `peer.role === 'host'` in addition to `canInject`. |
+| F6 | ✅ Fixed | `Install-VirtualMonitor.ps1` pins the archive SHA-256 and verifies it **before** extraction; a mismatch aborts. `-Url` without a matching `-Sha256` is refused. The bundled test certificate is deliberately **not** auto-trusted. |
+| F7 | ⚠️ Open | Clipboard application is still automatic. Consent gating remains on the roadmap. |
+| F8 | ✅ Fixed | All PowerShell now runs through `lib/powershell.js` with `execFile` + argv arrays — no shell. Elevated calls pass an `-EncodedCommand`, so no quoting of ours reaches a command line. |
+| F9 | ✅ Fixed | `/api/network-info` returns only `localIp` and `isBluetoothActive`; the full interface inventory (addresses, adapter names, types) is gone. |
+| F10 | ✅ Fixed | CSP (`default-src 'none'; frame-ancestors 'none'`), `nosniff`, `X-Frame-Options`, `Referrer-Policy`, CORP/COOP, `Permissions-Policy`, `Cache-Control: no-store`, and HSTS when the response is actually over TLS. |
+| F11 | ✅ Still true | Sanitizer unchanged and still sound; now additionally covered by tests for wheel sign and overlong keys. |
+| F12 | ✅ Still true | Regex unchanged; the allow-list is now *enforced* (F3) rather than advisory. |
+| F13 | ✅ Fixed | `scripts/Inject-Input.ps1` deleted. `binary-protocol.js` is kept deliberately: it is a pure, bounds-checked codec with no side effects (no injection surface) and is the basis for the planned binary signaling in `OPTIMIZATION_777.md`. |
+
+Additional hardening not in the original findings: host-token comparison is now
+constant-time (`crypto.timingSafeEqual`), `x-powered-by` is disabled, and
+`trust proxy` is explicitly off so a forwarded header cannot spoof identity past
+the per-IP limiter.
+
+---
+
 ## F1 — Room code is a full-control bearer credential with no brute-force protection on the join path
 **Severity: High**
 **Location:** `backend/lib/room-registry.js:29-35` (`generateRoomCode`), `:179-182` (`canInject`); `backend/server.js:280-317` (WS `join` / `input-inject`).
@@ -206,9 +235,9 @@ Impact today is bounded because a legitimately-connected client already has inje
 ## Dependency notes
 **Location:** `backend/package.json`, `frontend/package.json`.
 
-- Backend: `express ^5.2.1`, `ws ^8.21.1`, `cors ^2.8.6`, `dotenv ^17.4.2` — all current-generation with no known critical advisories at these ranges. `dotenv` is declared but `server.js` never calls `require('dotenv').config()` (harmless).
-- Frontend: `react 19`, `vite 8`, `qrcode.react`, `lucide-react` — nothing alarming.
-- The material supply-chain risk is not an npm package but the **runtime driver download** in F6.
+- Backend: `express ^5.2.1`, `ws ^8.21.2`, `cors ^2.8.6`, `dotenv ^17.4.2` — all current-generation, `npm audit` clean. `dotenv` is now actually loaded by `server.js`, so a `backend/.env` works as documented.
+- Frontend: `react 19.2.8`, `vite ^8.2.0`, `typescript ~7.0.2`, `qrcode.react`, `lucide-react` — `npm audit` clean. The `vite ^8.1.1` range pulled a `postcss <= 8.5.22` affected by GHSA-fxqj-rqcc-2cmp (arbitrary `.map` read via attacker-controlled `sourceMappingURL`); `vite ^8.2.0` clears it.
+- The material supply-chain risk was the **runtime driver download** in F6 — now pinned and hash-verified before extraction.
 - Caret ranges (`^`) mean transitive drift; run `npm audit` in CI and commit lockfile-pinned installs.
 
 ---

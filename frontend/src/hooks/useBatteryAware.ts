@@ -6,31 +6,43 @@ export interface BatteryState {
   shouldDegrade: boolean;
 }
 
+// The Battery Status API is not in lib.dom; describe just the surface we use.
+interface BatteryManager extends EventTarget {
+  level: number;
+  charging: boolean;
+}
+type BatteryCapableNavigator = Navigator & { getBattery?: () => Promise<BatteryManager> };
+
 export const useBatteryAware = (threshold: number = 0.15): BatteryState => {
   const [state, setState] = useState<BatteryState>({ level: 1, charging: false, shouldDegrade: false });
 
   useEffect(() => {
-    if (!('getBattery' in navigator)) return;
+    const getBattery = (navigator as BatteryCapableNavigator).getBattery;
+    if (typeof getBattery !== 'function') return;
 
-    let battery: any = null;
+    let battery: BatteryManager | null = null;
+    // The promise can resolve after unmount; don't touch state or subscribe then.
+    let cancelled = false;
 
     const update = () => {
       if (!battery) return;
       setState({
         level: battery.level,
         charging: battery.charging,
-        shouldDegrade: !battery.charging && battery.level < threshold
+        shouldDegrade: !battery.charging && battery.level < threshold,
       });
     };
 
-    (navigator as any).getBattery().then((b: any) => {
+    getBattery.call(navigator).then((b) => {
+      if (cancelled) return;
       battery = b;
       update();
-      battery.addEventListener('levelchange', update);
-      battery.addEventListener('chargingchange', update);
-    });
+      b.addEventListener('levelchange', update);
+      b.addEventListener('chargingchange', update);
+    }).catch(() => { /* battery status unavailable */ });
 
     return () => {
+      cancelled = true;
       if (battery) {
         battery.removeEventListener('levelchange', update);
         battery.removeEventListener('chargingchange', update);

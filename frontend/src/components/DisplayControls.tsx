@@ -31,12 +31,16 @@ export default function DisplayControls() {
 
   useEffect(() => { void refreshStatus(); }, [refreshStatus]);
 
+  // The backend now returns what the elevated PowerShell child actually
+  // reported — a declined UAC prompt, a driver Windows refused to load, a failed
+  // integrity check. Show that verbatim instead of announcing success just
+  // because the HTTP call didn't throw.
   const install = async () => {
     setBusy(true);
     setNote(null);
     try {
-      await api.vddInstall();
-      setNote('Virtual display driver initialized.');
+      const res = await api.vddInstall();
+      setNote(res.success ? res.message || 'Virtual display driver installed.' : res.error || 'Install failed.');
     } catch (e) {
       setNote(e instanceof Error ? e.message : 'Install failed.');
     } finally {
@@ -49,8 +53,9 @@ export default function DisplayControls() {
     setBusy(true);
     setNote(null);
     try {
-      if (present) await api.vddDisable();
-      else await api.vddEnable();
+      const res = present ? await api.vddDisable() : await api.vddEnable();
+      if (!res.success) setNote(res.error || 'Could not change the virtual display state.');
+      else if (res.message) setNote(res.message);
     } catch (e) {
       setNote(e instanceof Error ? e.message : 'Toggle failed.');
     } finally {
@@ -61,10 +66,12 @@ export default function DisplayControls() {
 
   const changeMode = async (next: DisplayMode) => {
     setMode(next);
+    setNote(null);
     try {
-      await api.vddConfigure({ displayMode: next });
-    } catch {
-      /* best-effort topology switch */
+      const res = await api.vddConfigure({ displayMode: next });
+      if (!res.success) setNote(res.error || 'Windows could not switch the display topology.');
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : 'Could not switch the display topology.');
     }
   };
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, Monitor, Power, Radio, ShieldCheck, Wifi, WifiOff } from 'lucide-react';
+import { Activity, Columns3, Copy, Monitor, Power, Radio, ShieldCheck, Wifi, WifiOff } from 'lucide-react';
 import type { ConnectionState, StreamSettings } from '../lib/types';
 import QRPanel from './QRPanel';
 import DisplayControls from './DisplayControls';
@@ -10,6 +10,8 @@ interface HostViewProps {
   isReady: boolean;
   peerCount: number;
   connectionState: ConnectionState;
+  extend: boolean;
+  onExtendChange: (extend: boolean) => void;
   onSettingsChange: (settings: StreamSettings) => void;
   onDisconnect: () => void;
 }
@@ -24,6 +26,8 @@ export default function HostView({
   isReady,
   peerCount,
   connectionState,
+  extend,
+  onExtendChange,
   onSettingsChange,
   onDisconnect,
 }: HostViewProps) {
@@ -89,6 +93,33 @@ export default function HostView({
             <Monitor size={18} />
             <h3>Stream Configuration</h3>
           </header>
+
+          <div className="field">
+            <span className="field-label">Display mode</span>
+            <div className="segmented" role="group" aria-label="Display mode">
+              <button
+                type="button"
+                className={`segmented-option ${extend ? '' : 'is-active'}`}
+                aria-pressed={!extend}
+                onClick={() => onExtendChange(false)}
+              >
+                <Copy size={14} /> Mirror
+              </button>
+              <button
+                type="button"
+                className={`segmented-option ${extend ? 'is-active' : ''}`}
+                aria-pressed={extend}
+                onClick={() => onExtendChange(true)}
+              >
+                <Columns3 size={14} /> Extend
+              </button>
+            </div>
+            <span className="field-hint">
+              {extend
+                ? `Desktop tiled across ${peerCount || 'your'} screen${peerCount === 1 ? '' : 's'} — each shows its own column.`
+                : 'Every connected screen shows the whole desktop.'}
+            </span>
+          </div>
 
           <label className="field">
             <span className="field-label">Resolution</span>

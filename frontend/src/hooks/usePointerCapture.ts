@@ -93,20 +93,27 @@ export function usePointerCapture<T extends HTMLElement>(
       send({ t: 'p', phase: 'up', pt: kindOf(e), id: e.pointerId, x, y, button: e.button });
     };
 
+    // deltaMode: 0 = pixels, 1 = lines, 2 = pages. Firefox reports lines, so a
+    // raw deltaY of "3" would arrive as three pixels of scroll. Normalize to
+    // pixels here; the host converts pixels to Windows wheel notches.
+    const WHEEL_SCALE = [1, 16, 800];
+
     const onWheel = (e: WheelEvent) => {
       if (fromUi(e)) return;
       e.preventDefault();
-      send({ t: 'wheel', dy: e.deltaY });
+      send({ t: 'wheel', dy: e.deltaY * (WHEEL_SCALE[e.deltaMode] ?? 1) });
     };
 
     const onContextMenu = (e: Event) => e.preventDefault();
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (fromUi(e)) return;
       e.preventDefault();
       send({ t: 'key', phase: 'down', key: e.key });
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
+      if (fromUi(e)) return;
       e.preventDefault();
       send({ t: 'key', phase: 'up', key: e.key });
     };
@@ -117,8 +124,12 @@ export function usePointerCapture<T extends HTMLElement>(
     el.addEventListener('pointercancel', onPointerUp);
     el.addEventListener('wheel', onWheel, { passive: false });
     el.addEventListener('contextmenu', onContextMenu);
-    el.addEventListener('keydown', onKeyDown);
-    el.addEventListener('keyup', onKeyUp);
+    // Key events go on `window`, not the container. Entering fullscreen moves
+    // the fullscreen root (and focus) to <html> — an ANCESTOR of the container —
+    // so a bubble-phase listener on the container never sees the keystroke and
+    // the keyboard silently died the moment a user went fullscreen.
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
 
     return () => {
       el.removeEventListener('pointerdown', onPointerDown);
@@ -127,8 +138,8 @@ export function usePointerCapture<T extends HTMLElement>(
       el.removeEventListener('pointercancel', onPointerUp);
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('contextmenu', onContextMenu);
-      el.removeEventListener('keydown', onKeyDown);
-      el.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
       if (rafId) cancelAnimationFrame(rafId);
     };
   }, [targetRef, enabled, send, videoRef]);

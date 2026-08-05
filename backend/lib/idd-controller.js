@@ -1,84 +1,54 @@
-const { exec } = require('child_process');
+'use strict';
+
+/**
+ * idd-controller.js — virtual display driver (IDD) operations.
+ *
+ * All PowerShell goes through lib/powershell.js: no shell, argv arrays only,
+ * and elevated calls report the child's real result instead of a blanket
+ * success (see that module for why both mattered).
+ */
+
 const path = require('path');
+const { runScript, runScriptElevated } = require('./powershell');
 
 const SCRIPTS_DIR = path.join(__dirname, '..', '..', 'scripts');
+const script = (name) => path.join(SCRIPTS_DIR, name);
 
-function runPowerShell(scriptName, args = [], elevate = false) {
-  return new Promise((resolve) => {
-    const scriptPath = path.join(SCRIPTS_DIR, scriptName);
-    let cmd;
-
-    if (elevate) {
-      // Launch via PowerShell with Administrator elevation (triggers Windows UAC prompt if needed)
-      cmd = `powershell -ExecutionPolicy Bypass -Command "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-ExecutionPolicy Bypass -File \\"${scriptPath}\\" ${args.join(' ')}'"`;
-    } else {
-      cmd = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" ${args.join(' ')}`;
-    }
-
-    exec(cmd, { windowsHide: true }, (error, stdout, stderr) => {
-      if (error) {
-        // Fallback execution without elevation if user cancels UAC
-        const fallbackCmd = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" ${args.join(' ')}`;
-        return exec(fallbackCmd, { windowsHide: true }, (fbErr, fbOut) => {
-          if (fbErr) {
-            return resolve({ success: false, error: stderr || error.message });
-          }
-          parseOutput(fbOut, resolve);
-        });
-      }
-      parseOutput(stdout, resolve);
-    });
-  });
-}
-
-function parseOutput(stdout, resolve) {
-  try {
-    const jsonMatch = stdout.trim().match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return resolve({ success: true, data: parsed });
-    }
-    return resolve({ success: true, output: stdout.trim() });
-  } catch {
-    return resolve({ success: true, output: stdout.trim() });
-  }
+// Coerce to bounded integers so nothing but digits ever reaches the script
+// arguments, regardless of the caller.
+function toInt(value, fallback, min, max) {
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
 }
 
 async function getStatus() {
-  return await runPowerShell('Configure-VirtualDisplay.ps1', ['-Action', 'Status'], false);
+  return runScript(script('Configure-VirtualDisplay.ps1'), ['-Action', 'Status']);
 }
 
 async function installDriver() {
-  return await runPowerShell('Install-VirtualMonitor.ps1', [], true);
+  return runScriptElevated(script('Install-VirtualMonitor.ps1'), []);
 }
 
 async function uninstallDriver() {
-  return await runPowerShell('Install-VirtualMonitor.ps1', ['-Uninstall'], true);
+  return runScriptElevated(script('Install-VirtualMonitor.ps1'), ['-Uninstall']);
 }
 
 async function enableDisplay() {
-  return await runPowerShell('Configure-VirtualDisplay.ps1', ['-Action', 'Enable'], true);
+  return runScriptElevated(script('Configure-VirtualDisplay.ps1'), ['-Action', 'Enable']);
 }
 
 async function disableDisplay() {
-  return await runPowerShell('Configure-VirtualDisplay.ps1', ['-Action', 'Disable'], true);
+  return runScriptElevated(script('Configure-VirtualDisplay.ps1'), ['-Action', 'Disable']);
 }
 
 async function configureDisplay(width, height, refreshRate) {
-  // Coerce to bounded integers so nothing but digits ever reaches the shell
-  // command line (guards against injection regardless of the caller).
-  const toInt = (v, fallback, min, max) => {
-    const n = parseInt(v, 10);
-    if (!Number.isFinite(n)) return fallback;
-    return Math.min(max, Math.max(min, n));
-  };
-
-  return await runPowerShell('Configure-VirtualDisplay.ps1', [
+  return runScript(script('Configure-VirtualDisplay.ps1'), [
     '-Action', 'Configure',
     '-Width', toInt(width, 1920, 640, 7680),
     '-Height', toInt(height, 1080, 480, 4320),
-    '-RefreshRate', toInt(refreshRate, 60, 24, 240)
-  ], false);
+    '-RefreshRate', toInt(refreshRate, 60, 24, 240),
+  ]);
 }
 
 module.exports = {
@@ -87,5 +57,5 @@ module.exports = {
   uninstallDriver,
   enableDisplay,
   disableDisplay,
-  configureDisplay
+  configureDisplay,
 };

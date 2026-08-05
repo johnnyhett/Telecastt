@@ -2,8 +2,19 @@ import { API_BASE } from './env';
 
 export interface NetworkInfo {
   localIp: string;
-  allIps: Array<{ interfaceName: string; address: string; type: string }>;
   isBluetoothActive: boolean;
+}
+
+/**
+ * Every device-control endpoint answers with this shape. `success` now reflects
+ * what the PowerShell script actually reported — including a declined UAC prompt
+ * or a driver Windows refused to load — so the UI must surface it rather than
+ * assume a non-throwing call means the operation worked.
+ */
+export interface DeviceResult {
+  success: boolean;
+  message?: string;
+  error?: string;
 }
 
 export interface RoomInfo {
@@ -12,8 +23,7 @@ export interface RoomInfo {
   expiresAt: number;
 }
 
-export interface VddStatus {
-  success: boolean;
+export interface VddStatus extends DeviceResult {
   data?: { Installed: boolean; Present: boolean; Status: string; InstanceId: string | null };
 }
 
@@ -66,11 +76,11 @@ export const api = {
       `/api/validate-room/${encodeURIComponent(code)}`
     ),
   vddStatus: () => request<VddStatus>('/api/vdd/status', { headers: hostHeaders() }),
-  vddInstall: () => request<{ success: boolean }>('/api/vdd/install', { method: 'POST', headers: hostHeaders() }),
-  vddEnable: () => request<{ success: boolean }>('/api/vdd/enable', { method: 'POST', headers: hostHeaders() }),
-  vddDisable: () => request<{ success: boolean }>('/api/vdd/disable', { method: 'POST', headers: hostHeaders() }),
+  vddInstall: () => request<DeviceResult>('/api/vdd/install', { method: 'POST', headers: hostHeaders() }),
+  vddEnable: () => request<DeviceResult>('/api/vdd/enable', { method: 'POST', headers: hostHeaders() }),
+  vddDisable: () => request<DeviceResult>('/api/vdd/disable', { method: 'POST', headers: hostHeaders() }),
   vddConfigure: (body: Record<string, unknown>) =>
-    request<{ success: boolean; error?: string }>('/api/vdd/configure', {
+    request<DeviceResult>('/api/vdd/configure', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...hostHeaders() },
       body: JSON.stringify(body),

@@ -6,7 +6,7 @@
  * exercised deterministically.
  */
 const assert = require('assert');
-const { RoomRegistry } = require('../lib/room-registry');
+const { RoomRegistry, CODE_LENGTH, CODE_CHARSET } = require('../lib/room-registry');
 
 const mkPeer = () => {
   const sent = [];
@@ -19,15 +19,23 @@ console.log('--- STARTING ROOM REGISTRY TEST SUITE ---');
 (function testCreate() {
   const reg = new RoomRegistry();
   const r = reg.createRoom();
-  assert(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/.test(r.roomId), 'room code must be 6 ambiguity-free chars');
+  const codePattern = new RegExp(`^[${CODE_CHARSET}]{${CODE_LENGTH}}$`);
+  assert(codePattern.test(r.roomId), `room code must be ${CODE_LENGTH} ambiguity-free chars`);
+  // The code is a bearer credential for OS input injection, so entropy matters:
+  // 8 symbols over a 32-char alphabet is 40 bits, not the original 30.
+  assert(CODE_LENGTH >= 8, 'room code must carry at least 40 bits of entropy');
   assert(typeof r.hostToken === 'string' && r.hostToken.length === 32, 'host token must be 32 hex chars');
   assert(r.expiresAt > Date.now(), 'expiry must be in the future');
   assert.strictEqual(reg.size, 1, 'registry should hold one room');
 
+  const codes = new Set();
+  for (let i = 0; i < 200; i++) codes.add(new RoomRegistry().createRoom().roomId);
+  assert(codes.size > 190, 'room codes must not collide in a small sample');
+
   const capped = new RoomRegistry({ maxRooms: 1 });
   capped.createRoom();
   assert.deepStrictEqual(capped.createRoom(), { error: 'capacity' }, 'second room must be rejected at cap');
-  console.log('OK  Test 1: createRoom shape, uniqueness & capacity cap');
+  console.log('OK  Test 1: createRoom shape, entropy, uniqueness & capacity cap');
 })();
 
 // 2. validateRoom: unknown / expired / full / valid.
@@ -191,6 +199,29 @@ console.log('--- STARTING ROOM REGISTRY TEST SUITE ---');
   assert.strictEqual(reg.isHostToken(undefined), false, 'missing token rejected');
   assert.strictEqual(reg.isHostToken(hostToken, 1000 + reg.ttlMs + 1), false, 'expired room token rejected');
   console.log('OK  Test 11: isHostToken device-control auth');
+})();
+
+// 12. Host-token comparison must not accept prefixes/suffixes, and must reject
+// non-string shapes rather than throwing inside the constant-time compare.
+(function testTokenComparison() {
+  const reg = new RoomRegistry();
+  const { roomId, hostToken } = reg.createRoom();
+
+  assert.strictEqual(reg.isHostToken(hostToken.slice(0, -1)), false, 'truncated token rejected');
+  assert.strictEqual(reg.isHostToken(hostToken + 'a'), false, 'extended token rejected');
+  assert.strictEqual(reg.isHostToken(hostToken.toUpperCase()), false, 'case-altered token rejected');
+  assert.strictEqual(reg.isHostToken(123), false, 'non-string token rejected');
+  assert.strictEqual(reg.isHostToken({ toString: () => hostToken }), false, 'object token rejected');
+
+  // Same guarantees on the join path.
+  assert.strictEqual(
+    reg.join(roomId, mkPeer(), { role: 'host', hostToken: hostToken.slice(0, -1) }).code,
+    403,
+    'truncated token cannot claim the host slot'
+  );
+  assert.strictEqual(reg.join(roomId, mkPeer(), { role: 'host', hostToken: null }).code, 403, 'null token rejected');
+  assert.strictEqual(reg.join(roomId, mkPeer(), {}).role, 'client', 'no token still joins as a client');
+  console.log('OK  Test 12: host-token comparison is exact & type-safe');
 })();
 
 console.log('--- ALL ROOM REGISTRY TESTS PASSED ---');
